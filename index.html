@@ -1,0 +1,2866 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>জমির প্লট ডিজাইনার</title>
+<style>
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body {
+    font-family: 'Hind Siliguri','Noto Sans Bengali', Arial, sans-serif;
+    background:#f8fafc;
+    overflow:hidden;
+  }
+  #app { display:flex; height:100vh; }
+
+  /* Sidebar */
+  #sidebar {
+    width:270px; background:#1e293b; color:#f8fafc; padding:14px;
+    overflow-y:auto; flex-shrink:0; display:flex; flex-direction:column; gap:10px;
+  }
+  #sidebar h1 {
+    font-size:14px; font-weight:700; color:#38bdf8;
+    border-bottom:1px solid #334155; padding-bottom:8px;
+  }
+  .btn {
+    padding:6px 10px; color:#fff; border:none; border-radius:5px;
+    cursor:pointer; font-size:11px; font-weight:700;
+  }
+  .btn:hover { filter:brightness(1.1); }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; filter:none; }
+  .btn-row { display:flex; gap:6px; flex-wrap:wrap; }
+  .btn-full { width:100%; padding:8px 0; }
+
+  #statusMsg { font-size:11px; color:#34d399; text-align:center; min-height:14px; }
+
+  .field-label { font-size:11px; color:#94a3b8; margin-bottom:3px; }
+  input[type=range] { width:100%; }
+  .checkbox-row { font-size:11px; color:#94a3b8; display:flex; align-items:center; gap:6px; cursor:pointer; }
+
+  #plotList { border-top:1px solid #334155; padding-top:8px; }
+  .plot-item {
+    padding:6px 8px; border-radius:5px; margin-bottom:3px; cursor:pointer;
+    background:#334155; border:1px solid transparent; font-size:11px;
+  }
+  .plot-item.selected { background:#1d4ed8; border-color:#3b82f6; }
+  .plot-item b { font-size:11px; }
+  .plot-item .dec { float:right; color:#34d399; font-weight:700; }
+  .plot-item .sides { color:#64748b; font-size:9.5px; margin-top:1px; clear:both; }
+
+  #totalBox { background:#0f172a; border-radius:8px; padding:8px 10px; }
+  #totalBox .lbl { font-size:10px; color:#94a3b8; }
+  #totalBox .val { font-size:18px; font-weight:700; color:#34d399; }
+  #totalBox .sub { font-size:10px; color:#64748b; }
+
+  #editPanel { border-top:1px solid #334155; padding-top:8px; }
+  #editPanel .header-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  #editPanel .title { font-size:12px; color:#38bdf8; font-weight:600; }
+  .area-box { background:#0f172a; border-radius:6px; padding:8px; margin-bottom:8px; }
+  .area-box .lbl { font-size:10px; color:#94a3b8; margin-bottom:3px; }
+  .area-box .val { font-size:16px; font-weight:700; color:#34d399; }
+  .area-box .sub { font-size:10px; color:#64748b; }
+
+  .side-edit-row { margin-bottom:8px; }
+  .side-edit-row .lbl { font-size:10px; color:#94a3b8; margin-bottom:2px; }
+  .side-edit-inner { display:flex; gap:4px; }
+  .side-edit-inner input {
+    flex:1; padding:4px 6px; border-radius:4px; border:1px solid #475569;
+    background:#0f172a; color:#f8fafc; font-size:12px;
+  }
+
+  .color-row { display:flex; gap:5px; flex-wrap:wrap; margin-top:4px; }
+  .color-swatch {
+    width:18px; height:18px; border-radius:3px; cursor:pointer; border-width:2px; border-style:solid;
+  }
+  .color-swatch.active { outline:2px solid white; }
+
+  #helpText { font-size:9px; color:#475569; margin-top:auto; padding-top:8px; border-top:1px solid #334155; line-height:1.8; }
+
+  /* Canvas area */
+  #canvasWrap { background:#ffffff; }
+  #svgCanvas { display:block; }
+
+  .sheet-tab {
+    display:flex; align-items:center; gap:4px;
+    padding:5px 10px; border-radius:4px 4px 0 0; cursor:pointer;
+    font-size:12px; font-family:inherit; border:none; white-space:nowrap;
+    background:#334155; color:#94a3b8; flex-shrink:0;
+    transition:background 0.15s;
+  }
+  .sheet-tab:hover { background:#475569; color:#f8fafc; }
+  .sheet-tab.active { background:#f8fafc; color:#1e293b; font-weight:700; }
+  .sheet-tab .tab-rename-input {
+    background:transparent; border:none; outline:none; font-size:12px;
+    font-weight:700; color:#1e293b; width:80px; font-family:inherit;
+  }
+  .sheet-tab .tab-close {
+    background:none; border:none; cursor:pointer; color:#94a3b8;
+    font-size:13px; padding:0 0 0 2px; line-height:1;
+  }
+  .sheet-tab .tab-close:hover { color:#ef4444; }
+
+  /* Edge right-click context menu */
+  #edgeContextMenu {
+    position:fixed; z-index:9999;
+    background:#1e293b; border:1px solid #475569; border-radius:6px;
+    padding:4px 0; box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    display:none; min-width:180px;
+  }
+  #edgeContextMenu .ctx-item {
+    padding:8px 14px; cursor:pointer; font-size:12px; color:#f8fafc;
+    display:flex; align-items:center; gap:8px;
+  }
+  #edgeContextMenu .ctx-item:hover { background:#334155; }
+  #edgeContextMenu .ctx-sep {
+    border-top:1px solid #334155; margin:3px 0;
+  }
+
+  .plot-group { cursor:grab; }
+  .plot-group:active { cursor:grabbing; }
+  .plot-group.locked { cursor:not-allowed; }
+  .corner-handle { cursor: nwse-resize; }
+
+  input[type=file] { display:none; }
+
+  #addedToast {
+    position:absolute; top:16px; left:50%; transform:translateX(-50%);
+    background:#1d4ed8; color:#fff; padding:10px 18px; border-radius:6px;
+    font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.2);
+    opacity:0; pointer-events:none; transition:opacity 0.3s;
+    z-index:50; max-width:85%; text-align:center; line-height:1.5;
+  }
+  #addedToast.show { opacity:1; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <h1>🗺️ প্লট ডিজাইনার</h1>
+    <div id="statusMsg"></div>
+
+    <div id="plotList"></div>
+
+    <div id="totalBox">
+      <div class="lbl">মোট জমি</div>
+      <div class="val" id="totalDecimal">০ শ</div>
+      <div class="sub" id="totalSqft">০ বর্গফুট</div>
+    </div>
+
+    <!-- GPS Anchor Panel -->
+    <div id="gpsPanel" style="border-top:1px solid #334155;padding-top:10px;">
+      <div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:6px;">📍 GPS Coordinates</div>
+      <div style="font-size:10px;color:#94a3b8;margin-bottom:6px;line-height:1.5;">
+        যেকোনো প্লটের কোণা সিলেক্ট করে নিচে GPS দিন — বাকি সব কোণার GPS এ হিসাব হবে
+      </div>
+      <div class="field-label">Anchor Point — Latitude</div>
+      <input type="text" id="gpsLat" placeholder="যেমন: 24.123456" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:5px;">
+      <div class="field-label">Anchor Point — Longitude</div>
+      <input type="text" id="gpsLng" placeholder="যেমন: 89.234567" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:5px;">
+      <div class="field-label">Anchor কোণা</div>
+      <select id="gpsCornerSelect" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:6px;">
+        <option value="">— প্লট ও কোণা বাছাই করুন —</option>
+      </select>
+      <button class="btn btn-full" id="setGpsAnchorBtn" style="background:#34d399;color:#0f172a;font-weight:700;">✔ GPS Anchor সেট করুন</button>
+      <div id="gpsAnchorStatus" style="font-size:10px;color:#94a3b8;margin-top:5px;min-height:14px;"></div>
+      <div style="margin-top:5px;">
+        <button class="btn" id="clearGpsBtn" style="background:#475569;width:100%;font-size:10px;">✕ GPS মুছুন</button>
+      </div>
+    </div>
+
+    <div id="editPanel" style="display:none;"></div>
+
+    <div id="helpText">
+      💡 প্লটে ক্লিক → সিলেক্ট<br>
+      ⌨️ Arrow key চেপে প্লট সরান (Shift = ৫ ফুট)<br>
+      🔵 কোণার নীল বিন্দু টেনে shape বদলান<br>
+      ↔ পাশের ফুট বা শ লিখে Enter চাপুন<br>
+      🔄 Rotate slider/বাটনে ঘোরান<br>
+      🌫️ Transparency slider দিয়ে রঙ স্বচ্ছ করুন<br>
+      📋 Ctrl+C কপি, Ctrl+V পেস্ট করুন<br>
+      🗂️ ] দিয়ে সামনে আনুন, [ দিয়ে পিছনে পাঠান (Shift+] / Shift+[ = একদম সামনে/পিছনে)<br>
+      🔒 লক করলে প্লট পরিবর্তন হবে না<br>
+      🧲 কাছাকাছি আনলে অটো align (magnet)<br>
+      ✏️ নাম পরিবর্তন করতে rename বক্স ব্যবহার করুন<br>
+      🔗 পাশাপাশি লাগানো দুটো প্লট merge করলে আসল শেপ (৫/৬/৮+ কোণা) ঠিক থাকবে<br>
+      ↩️ Ctrl+Z দিয়ে Undo, Ctrl+Y দিয়ে Redo করুন<br>
+      🖱️ প্লটের মাঝে ধরে drag করে সরান<br>
+      ➕ নতুন প্লট, 💾 সেভ, 🖼️ ছবি export করুন
+    </div>
+  </div>
+
+  <!-- Canvas + Sheet Tabs -->
+  <div style="display:flex;flex-direction:column;flex:1;min-width:0;position:relative;">
+
+    <!-- Top Toolbar -->
+    <div id="topToolbar" style="
+      display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+      background:#1e293b;border-bottom:2px solid #334155;
+      padding:6px 10px;flex-shrink:0;
+    ">
+      <!-- File -->
+      <button class="btn" style="background:#16a34a" id="saveBtn">💾 সেভ</button>
+      <button class="btn" style="background:#0284c7" id="loadBtn">📂 লোড</button>
+      <button class="btn" style="background:#7c3aed" id="exportBtn">🖼️ ছবি</button>
+      <button class="btn" style="background:#0d9488" id="gpsExportBtn" title="সব GPS কোঅর্ডিনেট copy করুন">📋 GPS</button>
+      <input type="file" id="fileInput" accept=".json">
+
+      <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
+
+      <!-- Undo/Redo -->
+      <button class="btn" style="background:#475569;" id="undoBtn" disabled title="Undo (Ctrl+Z)">↩️</button>
+      <button class="btn" style="background:#475569;" id="redoBtn" disabled title="Redo (Ctrl+Y)">↪️</button>
+
+      <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
+
+      <!-- Add Plot -->
+      <button class="btn" style="background:#ea580c" id="addPlotBtn">➕ নতুন প্লট</button>
+
+      <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
+
+      <!-- Zoom -->
+      <span style="font-size:11px;color:#94a3b8;white-space:nowrap;">জুম</span>
+      <input type="range" id="zoomSlider" min="0.4" max="2.5" step="0.05" value="1.1" style="width:80px;">
+      <span id="zoomVal" style="font-size:11px;color:#94a3b8;min-width:28px;">1.10</span>
+
+      <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
+
+      <!-- Toggles -->
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="showSidesChk" checked> দৈর্ঘ্য
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="showAnglesChk"> কোণ°
+      </label>
+
+      <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
+
+      <!-- Mouza -->
+      <button class="btn" style="background:#b45309;" id="mouzaBtn">🗺️ মৌজা</button>
+    </div>
+
+    <!-- Mouza Panel (slides in from right side of canvas) -->
+    <div id="mouzaPanel" style="
+      display:none; position:absolute; top:0; right:0; width:310px; height:100%;
+      background:#1e293b; color:#f8fafc; z-index:100; box-shadow:-4px 0 16px rgba(0,0,0,0.4);
+      overflow-y:auto; padding:16px; box-sizing:border-box;
+    ">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="font-size:14px;font-weight:700;color:#fbbf24;">🗺️ মৌজা ম্যাপ</div>
+        <button id="closeMouzaBtn" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+      </div>
+
+      <!-- Upload -->
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">ম্যাপের ছবি আপলোড করুন</div>
+      <button class="btn btn-full" id="mouzaUploadBtn" style="background:#334155;margin-bottom:4px;">📂 ছবি বাছুন (JPG/PNG)</button>
+      <input type="file" id="mouzaFileInput" accept="image/*" style="display:none;">
+      <div id="mouzaImageInfo" style="font-size:10px;color:#64748b;margin-bottom:10px;"></div>
+
+      <!-- Opacity -->
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">ছবির স্বচ্ছতা</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;">
+        <input type="range" id="mouzaOpacity" min="5" max="100" value="60" style="flex:1;">
+        <span id="mouzaOpacityVal" style="font-size:10px;color:#94a3b8;min-width:30px;">৬০%</span>
+      </div>
+
+      <!-- Image Size / Zoom -->
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">ছবির আকার (Zoom)</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+        <span style="font-size:10px;color:#64748b;">ছোট</span>
+        <input type="range" id="mouzaSizeSlider" min="10" max="500" value="100" style="flex:1;">
+        <span style="font-size:10px;color:#64748b;">বড়</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span id="mouzaSizeVal" style="font-size:10px;color:#94a3b8;">১০০%</span>
+        <button class="btn" id="mouzaSizeResetBtn" style="background:#475569;padding:2px 8px;font-size:10px;">↺ রিসেট</button>
+      </div>
+
+      <!-- Scale Calibration -->
+      <div style="border-top:1px solid #334155;padding-top:12px;margin-bottom:8px;">
+        <div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:6px;">📏 স্কেল ক্যালিব্রেশন</div>
+        <div style="font-size:10px;color:#94a3b8;margin-bottom:8px;line-height:1.5;">
+          ছবিতে দুটো পরিচিত বিন্দু ক্লিক করুন (যেমন দুই কোণা), তারপর তাদের মধ্যে বাস্তব দূরত্ব ফুটে লিখুন।
+        </div>
+        <div id="mouzaCalibStatus" style="font-size:11px;color:#fbbf24;margin-bottom:8px;min-height:16px;"></div>
+        <div style="display:flex;gap:4px;margin-bottom:8px;">
+          <button class="btn" id="mouzaCalibBtn" style="background:#0284c7;flex:1;">👆 ক্যানভাসে ২টি বিন্দু ক্লিক করুন</button>
+          <button class="btn" id="mouzaCalibClearBtn" style="background:#475569;">✕</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+          <input type="number" id="mouzaRealDist" placeholder="বাস্তব দূরত্ব (ফুট)" min="1" style="flex:1;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;">
+          <button class="btn" id="mouzaSetScaleBtn" style="background:#16a34a;">✔ সেট</button>
+        </div>
+        <div id="mouzaScaleInfo" style="font-size:10px;color:#34d399;min-height:14px;"></div>
+      </div>
+
+      <!-- Remove -->
+      <div style="border-top:1px solid #334155;padding-top:10px;">
+        <button class="btn btn-full" id="mouzaRemoveBtn" style="background:#dc2626;">🗑️ ছবি মুছুন</button>
+      </div>
+    </div>
+
+    <div id="canvasWrap" style="flex:1;overflow:auto;background:#ffffff;position:relative;">
+      <div id="addedToast"></div>
+      <svg id="svgCanvas" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="selGlow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#2563eb" flood-opacity="0.7"/>
+          </filter>
+        </defs>
+        <rect id="bgRect" fill="#ffffff"/>
+        <g id="mouzaLayer"></g>
+        <g id="plotsLayer"></g>
+        <g id="gpsLayer"></g>
+        <g id="scaleBar"></g>
+        <g id="northArrow"></g>
+      </svg>
+    </div>
+
+    <!-- Sheet Tab Bar (like Excel) -->
+    <div id="sheetTabBar" style="
+      display:flex;align-items:center;background:#1e293b;border-top:2px solid #334155;
+      padding:0 8px;min-height:36px;flex-shrink:0;gap:2px;overflow-x:auto;
+    ">
+      <div id="sheetTabs" style="display:flex;gap:2px;align-items:center;flex:1;"></div>
+      <button id="addSheetBtn" title="নতুন Sheet যোগ করুন" style="
+        background:#334155;color:#94a3b8;border:none;border-radius:4px;
+        padding:4px 10px;cursor:pointer;font-size:16px;flex-shrink:0;margin-left:4px;
+      ">＋</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edge right-click context menu -->
+<div id="edgeContextMenu">
+  <div class="ctx-item" id="ctxSplitEdge">✂️ বাহু দুই ভাগ করুন</div>
+</div>
+
+<script>
+// ============================================================
+// CONSTANTS
+// ============================================================
+const SQ_FT_PER_DECIMAL = 435.6;
+const PX_PER_FT = 2;
+const VW = 700, VH = 1100; // generous canvas size in px (350ft x 550ft)
+const BN_DIGITS = ["০","১","২","৩","৪","৫","৬","৭","৮","৯"];
+const SIDE_LABELS = { N:"উ", E:"পূ", S:"দ", W:"প" };
+const COLORS = [
+  ["#dbeafe","#2563eb"],["#dcfce7","#16a34a"],["#fef9c3","#ca8a04"],
+  ["#fce7f3","#db2777"],["#ede9fe","#7c3aed"],["#ffedd5","#ea580c"],
+  ["#e0f2fe","#0284c7"],["#fef2f2","#ef4444"],["#f0fdfa","#0d9488"],["#fdf4ff","#a21caf"]
+];
+
+// ============================================================
+// HELPERS
+// ============================================================
+function toBn(n) {
+  return String(parseFloat(Number(n).toFixed(2))).replace(/[0-9]/g, d => BN_DIGITS[d]);
+}
+function toBnLabel(n) {
+  return String(n).split("").map(c => BN_DIGITS[c] !== undefined ? BN_DIGITS[c] : c).join("");
+}
+function toEn(s) {
+  return String(s).replace(/[০-৯]/g, d => "০১২৩৪৫৬৭৮৯".indexOf(d));
+}
+
+// Format a length given in decimal feet as "X ফুট Y ইঞ্চি" (feet + inches), Bengali numerals.
+// e.g. 84.5 ft -> "৮৪ ফুট ৬ ইঞ্চি"
+function toFeetInches(ftDecimal) {
+  let totalInches = Math.round(ftDecimal * 12);
+  let feet = Math.floor(totalInches / 12);
+  let inches = totalInches % 12;
+  // handle rounding edge case where inches rounds up to 12
+  if (inches === 12) { feet += 1; inches = 0; }
+  const feetBn = toBnLabel(feet);
+  const inchesBn = toBnLabel(inches);
+  if (inches === 0) return `${feetBn} ফু`;
+  return `${feetBn} ফু ${inchesBn} ই`;
+}
+function polyArea(pts) {
+  let a = 0, n = pts.length;
+  for (let i=0;i<n;i++){
+    const [x1,y1]=pts[i], [x2,y2]=pts[(i+1)%n];
+    a += x1*y2 - x2*y1;
+  }
+  return Math.abs(a/2);
+}
+function segLen(p1,p2){ const dx=p2[0]-p1[0], dy=p2[1]-p1[1]; return Math.sqrt(dx*dx+dy*dy); }
+
+// Unified accessor: returns the ordered point list for a plot's shape, whether it's
+// a classic 4-corner quad ({nw,ne,se,sw}) or a general N-sided polygon (array of [x,y]).
+function shapePoints(corners){
+  if (Array.isArray(corners)) return corners;
+  return [corners.nw, corners.ne, corners.se, corners.sw];
+}
+function isQuad(corners){ return !Array.isArray(corners); }
+
+// Plot fill opacity (0 = fully transparent, 1 = fully solid). Defaults to 0.9 for
+// plots that don't have this field yet (e.g. loaded from an older saved file).
+function getOpacity(p){ return (typeof p.opacity === 'number') ? p.opacity : 0.9; }
+
+// ============================================================
+// GPS COORDINATE SYSTEM
+// ============================================================
+// Earth constants for lat/lng ↔ feet conversion
+const FT_PER_DEG_LAT = 364000; // 1 degree latitude ≈ 364,000 feet (constant globally)
+
+// 1 degree longitude in feet depends on latitude (gets shorter near poles)
+function ftPerDegLng(latDeg) {
+  return FT_PER_DEG_LAT * Math.cos(latDeg * Math.PI / 180);
+}
+
+/**
+ * Given that canvas point (anchorX, anchorY) [in feet from canvas origin]
+ * corresponds to real GPS (anchorLat, anchorLng),
+ * compute the GPS coordinates of any other canvas point (x, y) [also in feet].
+ */
+function canvasToGPS(x, y, anchor) {
+  const dxFt = x - anchor.canvasX; // feet east (+) or west (-)
+  const dyFt = y - anchor.canvasY; // feet south (+) or north (-) [canvas Y grows downward]
+  const lat = anchor.lat - dyFt / FT_PER_DEG_LAT; // north = higher lat, so subtract
+  const lng = anchor.lng + dxFt / ftPerDegLng(anchor.lat);
+  return { lat, lng };
+}
+
+/**
+ * Get GPS coordinates of all corners of a plot, given the current gpsAnchor.
+ * Returns array of {key, lat, lng} for each corner point.
+ */
+function getPlotGPS(plot) {
+  if (!gpsAnchor) return null;
+  const pts = shapePoints(plot.corners);
+  const quad = isQuad(plot.corners);
+  const keys = quad ? ['উত্তর-পশ্চিম','উত্তর-পূর্ব','দক্ষিণ-পূর্ব','দক্ষিণ-পশ্চিম'] : pts.map((_,i)=>`কোণা ${i+1}`);
+  return pts.map((pt, i) => ({
+    key: keys[i],
+    ...canvasToGPS(pt[0], pt[1], gpsAnchor),
+  }));
+}
+
+/** Format a GPS coordinate pair for display */
+function fmtGPS(lat, lng) {
+  return `${lat.toFixed(6)}°N, ${lng.toFixed(6)}°E`;
+}
+
+// Returns side lengths. For quads: {N,E,S,W} (compatible with existing UI).
+// For general polygons: an ordered array of edge lengths (no N/E/S/W naming).
+function getSides(c){
+  if (isQuad(c)) {
+    return {
+      N: parseFloat(segLen(c.nw,c.ne).toFixed(2)),
+      E: parseFloat(segLen(c.ne,c.se).toFixed(2)),
+      S: parseFloat(segLen(c.se,c.sw).toFixed(2)),
+      W: parseFloat(segLen(c.sw,c.nw).toFixed(2)),
+    };
+  }
+  const pts = c;
+  const n = pts.length;
+  const arr = [];
+  for (let i=0;i<n;i++) arr.push(parseFloat(segLen(pts[i], pts[(i+1)%n]).toFixed(2)));
+  return arr;
+}
+function getAreaFt(c){ return polyArea(shapePoints(c)); }
+function getDecimal(c){ return getAreaFt(c) / SQ_FT_PER_DECIMAL; }
+function centerOf(c){
+  const pts = shapePoints(c);
+  const sx = pts.reduce((s,p)=>s+p[0],0), sy = pts.reduce((s,p)=>s+p[1],0);
+  return [sx/pts.length, sy/pts.length];
+}
+function updateSide(corners, side, newLen){
+  // Only applies to classic 4-corner quads (side editing UI is N/E/S/W specific)
+  if (!isQuad(corners)) return corners;
+  let {nw,ne,se,sw} = corners;
+  nw=[...nw]; ne=[...ne]; se=[...se]; sw=[...sw];
+  function scaleVec(p1,p2,len){
+    const dx=p2[0]-p1[0], dy=p2[1]-p1[1];
+    const old=Math.sqrt(dx*dx+dy*dy);
+    if(old===0) return p2;
+    const r=len/old;
+    return [p1[0]+dx*r, p1[1]+dy*r];
+  }
+  if(side==="N") ne = scaleVec(nw, ne, newLen);
+  else if(side==="S") se = scaleVec(sw, se, newLen);
+  else if(side==="E") se = scaleVec(ne, se, newLen);
+  else if(side==="W") sw = scaleVec(nw, sw, newLen);
+  return {nw,ne,se,sw};
+}
+
+// Scale entire shape uniformly (around its center) so that area matches target decimal.
+// Works for both quads and general polygons.
+function scaleToDecimal(corners, targetDecimal){
+  const targetSqft = targetDecimal * SQ_FT_PER_DECIMAL;
+  const currentSqft = getAreaFt(corners);
+  if (currentSqft <= 0) return corners;
+  const ratio = Math.sqrt(targetSqft / currentSqft);
+  const [cx, cy] = centerOf(corners);
+  function scalePt([x,y]){ return [cx + (x-cx)*ratio, cy + (y-cy)*ratio]; }
+  if (isQuad(corners)) {
+    return {
+      nw: scalePt(corners.nw), ne: scalePt(corners.ne),
+      se: scalePt(corners.se), sw: scalePt(corners.sw),
+    };
+  }
+  return corners.map(scalePt);
+}
+
+// Rotate shape by angle (degrees) around its center. Works for both quads and polygons.
+function rotateCorners(corners, angleDeg){
+  const [cx, cy] = centerOf(corners);
+  const rad = angleDeg * Math.PI / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  function rot([x,y]){
+    const dx = x-cx, dy = y-cy;
+    return [cx + dx*cos - dy*sin, cy + dx*sin + dy*cos];
+  }
+  if (isQuad(corners)) {
+    return {
+      nw: rot(corners.nw), ne: rot(corners.ne),
+      se: rot(corners.se), sw: rot(corners.sw),
+    };
+  }
+  return corners.map(rot);
+}
+
+// Translate (move) a whole shape by dx,dy. Works for both quads and polygons.
+function translateCorners(corners, dx, dy){
+  function t([x,y]){ return [x+dx, y+dy]; }
+  if (isQuad(corners)) {
+    return {
+      nw: t(corners.nw), ne: t(corners.ne),
+      se: t(corners.se), sw: t(corners.sw),
+    };
+  }
+  return corners.map(t);
+}
+
+// Magnetic snap: while dragging plot `id` by translation (dx,dy) from origCorners,
+// check all OTHER plots' points; if any point of the moving plot comes within
+// SNAP_THRESHOLD feet of any corner/edge-midpoint of another plot, snap dx/dy to align exactly.
+const SNAP_THRESHOLD = 8; // feet
+function getSnapPoints(corners){
+  const pts = shapePoints(corners);
+  const n = pts.length;
+  const mids = [];
+  for (let i=0;i<n;i++) {
+    const a=pts[i], b=pts[(i+1)%n];
+    mids.push([(a[0]+b[0])/2, (a[1]+b[1])/2]);
+  }
+  return [...pts, ...mids];
+}
+function computeSnapOffset(movingId, origCorners, dx, dy){
+  const movedPreview = translateCorners(origCorners, dx, dy);
+  const movingPts = getSnapPoints(movedPreview);
+  let bestDx = dx, bestDy = dy;
+  let snappedX = false, snappedY = false;
+
+  plots.forEach(other => {
+    if (other.id === movingId) return;
+    const otherPts = getSnapPoints(other.corners);
+    movingPts.forEach(mp => {
+      otherPts.forEach(op => {
+        const ddx = op[0]-mp[0], ddy = op[1]-mp[1];
+        if (!snappedX && Math.abs(ddx) < SNAP_THRESHOLD && Math.abs(ddy) < SNAP_THRESHOLD*1.5) {
+          bestDx = dx + ddx;
+          snappedX = true;
+        }
+        if (!snappedY && Math.abs(ddy) < SNAP_THRESHOLD && Math.abs(ddx) < SNAP_THRESHOLD*1.5) {
+          bestDy = dy + ddy;
+          snappedY = true;
+        }
+      });
+    });
+  });
+  return { dx: bestDx, dy: bestDy, snapped: snappedX || snappedY };
+}
+
+// ============================================================
+// POLYGON UNION (for merging adjacent plots, preserving exact combined shape —
+// can produce 5, 6, 8+ sided results, not just rectangles)
+// ============================================================
+function distPts(a, b) { return Math.hypot(a[0]-b[0], a[1]-b[1]); }
+
+// Tolerance for "are these two plots touching" — generous since plots are positioned
+// via mouse-drag (pixel-level precision), not exact coordinate entry. In feet.
+const MERGE_TOLERANCE_FT = 2;
+
+function onSegmentPt(p, a, b, eps = MERGE_TOLERANCE_FT) {
+  const abLen = distPts(a,b) || 1;
+  const cross = (b[0]-a[0])*(p[1]-a[1]) - (b[1]-a[1])*(p[0]-a[0]);
+  const perpDist = Math.abs(cross) / abLen; // perpendicular distance from p to line a-b, in feet
+  if (perpDist > eps) return false;
+  const dot = (p[0]-a[0])*(b[0]-a[0]) + (p[1]-a[1])*(b[1]-a[1]);
+  if (dot < -eps*abLen) return false;
+  const lenSq = abLen*abLen;
+  if (dot > lenSq + eps*abLen) return false;
+  return true;
+}
+
+function ensureCCW(poly) {
+  return polyArea(poly) < 0 ? poly.slice().reverse() : poly.slice();
+}
+// Note: polyArea() above returns Math.abs(...) (unsigned), so we need a signed version for CCW check
+function signedArea(pts) {
+  let a = 0, n = pts.length;
+  for (let i=0;i<n;i++){
+    const [x1,y1]=pts[i], [x2,y2]=pts[(i+1)%n];
+    a += x1*y2 - x2*y1;
+  }
+  return a/2;
+}
+function ensureCCWSigned(poly) {
+  return signedArea(poly) < 0 ? poly.slice().reverse() : poly.slice();
+}
+
+function insertForeignVerticesOnEdges(poly, otherVerts) {
+  const n = poly.length;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = poly[i], b = poly[(i+1)%n];
+    out.push(a);
+    const onThisEdge = [];
+    for (const v of otherVerts) {
+      if (distPts(v,a) < MERGE_TOLERANCE_FT || distPts(v,b) < MERGE_TOLERANCE_FT) continue;
+      if (onSegmentPt(v, a, b)) onThisEdge.push(v);
+    }
+    onThisEdge.sort((p,q)=>distPts(p,a)-distPts(q,a));
+    out.push(...onThisEdge);
+  }
+  return out;
+}
+
+// Check if two line segments lie along (approximately) the same infinite line,
+// using PERPENDICULAR DISTANCE in feet (not raw cross product, which scales with
+// vector length and gives misleadingly large numbers for long edges).
+function collinearWithinTolerance(a, b, c, d, tolFt = MERGE_TOLERANCE_FT) {
+  const abLen = distPts(a,b) || 1;
+  function perpDistToAB(p) {
+    const cross = (b[0]-a[0])*(p[1]-a[1]) - (b[1]-a[1])*(p[0]-a[0]);
+    return Math.abs(cross) / abLen;
+  }
+  return perpDistToAB(c) <= tolFt && perpDistToAB(d) <= tolFt;
+}
+
+function edgeIsShared(a, b, otherPoly) {
+  const n = otherPoly.length;
+  for (let j = 0; j < n; j++) {
+    const c = otherPoly[j], d = otherPoly[(j+1)%n];
+    if (!collinearWithinTolerance(a, b, c, d)) continue;
+    const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+    if (onSegmentPt(mid, c, d) || onSegmentPt([(c[0]+d[0])/2,(c[1]+d[1])/2], a, b)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function removeCollinearPts(poly, eps=1e-3) {
+  const n = poly.length;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const prev = poly[(i-1+n)%n], cur = poly[i], next = poly[(i+1)%n];
+    const cross = (cur[0]-prev[0])*(next[1]-prev[1]) - (cur[1]-prev[1])*(next[0]-prev[0]);
+    if (Math.abs(cross) > eps) out.push(cur);
+  }
+  return out.length >= 3 ? out : poly;
+}
+
+/**
+ * Union two simple, edge-adjacent (touching, non-overlapping) polygons/quads.
+ * Returns the merged outer boundary as an array of [x,y] points (can be 4, 5, 6, 8+ sided),
+ * or null if the two shapes don't share a boundary segment (i.e. aren't truly adjacent).
+ */
+// Snap points across two polygons that are within MERGE_TOLERANCE_FT of each other,
+// so the boundary-walk can use exact equality afterward (avoids tiny floating gaps
+// from imprecise mouse-drag positioning corrupting the traced union shape).
+function snapMatchingPoints(polyA, polyB) {
+  const snappedB = polyB.map(pb => {
+    const match = polyA.find(pa => distPts(pa, pb) < MERGE_TOLERANCE_FT);
+    return match ? [match[0], match[1]] : pb;
+  });
+  return snappedB;
+}
+
+function unionAdjacentShapes(cornersA, cornersB){
+  let polyA = ensureCCWSigned(shapePoints(cornersA).map(p => [p[0], p[1]]));
+  let polyB = ensureCCWSigned(shapePoints(cornersB).map(p => [p[0], p[1]]));
+
+  polyA = insertForeignVerticesOnEdges(polyA, polyB);
+  polyB = insertForeignVerticesOnEdges(polyB, polyA);
+
+  // Snap near-matching vertices exactly together (handles real-world mouse-drag imprecision)
+  polyB = snapMatchingPoints(polyA, polyB);
+  polyA = snapMatchingPoints(polyB, polyA);
+
+  const nA = polyA.length, nB = polyB.length;
+
+  const sharedA = [];
+  for (let i = 0; i < nA; i++) {
+    const a = polyA[i], b = polyA[(i+1)%nA];
+    sharedA.push(edgeIsShared(a, b, polyB));
+  }
+  const sharedB = [];
+  for (let i = 0; i < nB; i++) {
+    const a = polyB[i], b = polyB[(i+1)%nB];
+    sharedB.push(edgeIsShared(a, b, polyA));
+  }
+
+  if (!sharedA.some(s => s)) return null;
+
+  let startI = -1;
+  for (let i = 0; i < nA; i++) { if (!sharedA[i]) { startI = i; break; } }
+  if (startI === -1) return null;
+
+  const result = [];
+  let curPoly = polyA, curN = nA, curShared = sharedA, otherPoly = polyB;
+  let i = startI;
+  let guard = 0;
+  const maxSteps = (nA + nB) * 2 + 10;
+  const startPt = polyA[startI];
+  const JUMP_TOLERANCE = MERGE_TOLERANCE_FT * 1.5; // generous, since points are now snapped where possible
+
+  while (guard++ < maxSteps) {
+    const pt = curPoly[i];
+    if (result.length === 0 || distPts(result[result.length-1], pt) > 1e-5) {
+      result.push(pt);
+    }
+    if (result.length > 2 && distPts(pt, startPt) < JUMP_TOLERANCE && guard > 1) break;
+
+    if (curShared[i]) {
+      const matchIdx = otherPoly.findIndex(v => distPts(v, pt) < JUMP_TOLERANCE);
+      if (matchIdx !== -1) {
+        curPoly = (curPoly === polyA) ? polyB : polyA;
+        curN = (curPoly === polyA) ? nA : nB;
+        curShared = (curPoly === polyA) ? sharedA : sharedB;
+        otherPoly = (curPoly === polyA) ? polyB : polyA;
+        i = matchIdx;
+      }
+    }
+    i = (i + 1) % curN;
+  }
+
+  if (result.length < 3) return null;
+  if (result.length > 1 && distPts(result[0], result[result.length-1]) < JUMP_TOLERANCE) result.pop();
+  if (result.length < 3) return null;
+
+  const cleaned = removeCollinearPts(result);
+  return cleaned.length >= 3 ? cleaned : result;
+}
+
+
+
+// ============================================================
+// SHEET STATE MODEL
+// ============================================================
+// Each "sheet" stores an independent set of plots + view settings.
+// The active sheet's data is always reflected in the flat state vars below,
+// which all existing code continues to use without modification.
+
+function makeSheet(name, initialPlots) {
+  return {
+    name,
+    plots: JSON.parse(JSON.stringify(initialPlots || [])),
+    nextId: (initialPlots ? Math.max(...initialPlots.map(p=>p.id), 7) + 1 : 8),
+    selected: null,
+    zoom: 1.1,
+    showSides: true,
+    showAngles: false,
+    gpsAnchor: null,
+    undoStack: [],
+    redoStack: [],
+    mouzaImage: null,  // { dataUrl, widthPx, heightPx, opacity, offsetX, offsetY }
+    mouzaScale: null,  // { pixelsPerFt } — how many image pixels = 1 foot
+  };
+}
+
+const INITIAL_PLOTS = [
+  { id:1, label:"১", color:"#dbeafe", border:"#2563eb", locked:false,
+    corners: { nw:[0,390], ne:[145,390], se:[145,490], sw:[0,490] }, labelPos:[72,440] },
+  { id:2, label:"২", color:"#dcfce7", border:"#16a34a", locked:false,
+    corners: { nw:[145,390], ne:[280,390], se:[260,490], sw:[145,490] }, labelPos:[205,440] },
+  { id:3, label:"৩", color:"#fef9c3", border:"#ca8a04", locked:false,
+    corners: { nw:[0,310], ne:[160,310], se:[160,390], sw:[0,390] }, labelPos:[78,350] },
+  { id:4, label:"৪", color:"#fce7f3", border:"#db2777", locked:false,
+    corners: { nw:[160,310], ne:[280,310], se:[280,390], sw:[160,390] }, labelPos:[218,350] },
+  { id:5, label:"৫", color:"#ede9fe", border:"#7c3aed", locked:false,
+    corners: { nw:[0,245], ne:[175,245], se:[160,310], sw:[0,310] }, labelPos:[82,278] },
+  { id:6, label:"৬", color:"#ffedd5", border:"#ea580c", locked:false,
+    corners: { nw:[175,210], ne:[285,185], se:[285,245], sw:[175,245] }, labelPos:[228,220] },
+  { id:7, label:"৭", color:"#e0f2fe", border:"#0284c7", locked:false,
+    corners: { nw:[0,0], ne:[260,0], se:[175,245], sw:[0,245] }, labelPos:[120,130] },
+];
+
+let sheets = [makeSheet('Sheet ১', INITIAL_PLOTS)];
+let activeSheetIdx = 0;
+
+// Flat state variables — all existing code reads/writes these.
+// saveSheetState() / loadSheetState() sync them with sheets[] on tab switch.
+let plots    = sheets[0].plots;
+let nextId   = sheets[0].nextId;
+let selected = sheets[0].selected;
+let zoom     = sheets[0].zoom;
+let showSides   = sheets[0].showSides;
+let showAngles  = sheets[0].showAngles;
+let sideEdits   = {};
+let clipboardPlot = null; // global clipboard — works across sheets
+let gpsAnchor   = sheets[0].gpsAnchor;
+let mouzaImage  = sheets[0].mouzaImage;  // background map image for this sheet
+let mouzaScale  = sheets[0].mouzaScale;  // { pixelsPerFt }
+
+function saveSheetState() {
+  const s = sheets[activeSheetIdx];
+  s.plots    = plots;
+  s.nextId   = nextId;
+  s.selected = selected;
+  s.zoom     = zoom;
+  s.showSides   = showSides;
+  s.showAngles  = showAngles;
+  s.gpsAnchor   = gpsAnchor;
+  s.mouzaImage  = mouzaImage;
+  s.mouzaScale  = mouzaScale;
+  s.undoStack = undoStack.slice();
+  s.redoStack = redoStack.slice();
+}
+
+function loadSheetState(idx) {
+  const s = sheets[idx];
+  plots    = s.plots;
+  nextId   = s.nextId;
+  selected = s.selected;
+  zoom     = s.zoom;
+  showSides   = s.showSides;
+  showAngles  = s.showAngles;
+  gpsAnchor   = s.gpsAnchor;
+  mouzaImage  = s.mouzaImage || null;
+  mouzaScale  = s.mouzaScale || null;
+  undoStack   = s.undoStack.slice();
+  redoStack   = s.redoStack.slice();
+  sideEdits   = {};
+  // Sync UI controls
+  const zsl = document.getElementById('zoomSlider');
+  if (zsl) { zsl.value = zoom; document.getElementById('zoomVal').textContent = zoom.toFixed(2); }
+  const ssc = document.getElementById('showSidesChk');
+  if (ssc) ssc.checked = showSides;
+  const sac = document.getElementById('showAnglesChk');
+  if (sac) sac.checked = showAngles;
+  // Restore GPS inputs
+  const gla = document.getElementById('gpsLat');
+  const glo = document.getElementById('gpsLng');
+  const gas = document.getElementById('gpsAnchorStatus');
+  if (gla) gla.value = gpsAnchor ? gpsAnchor.lat : '';
+  if (glo) glo.value = gpsAnchor ? gpsAnchor.lng : '';
+  if (gas) {
+    gas.textContent = gpsAnchor ? `✅ GPS: ${gpsAnchor.lat.toFixed(6)}°N, ${gpsAnchor.lng.toFixed(6)}°E` : '';
+    gas.style.color = '#34d399';
+  }
+  updateUndoRedoButtons();
+}
+
+function switchToSheet(idx) {
+  if (idx < 0 || idx >= sheets.length) return;
+  saveSheetState();
+  activeSheetIdx = idx;
+  loadSheetState(idx);
+  renderAll();
+  renderSheetTabs();
+}
+
+function addSheet() {
+  saveSheetState();
+  const newName = `Sheet ${toBnLabel(sheets.length + 1)}`;
+  sheets.push(makeSheet(newName, []));
+  activeSheetIdx = sheets.length - 1;
+  loadSheetState(activeSheetIdx);
+  renderAll();
+  renderSheetTabs();
+  showToast(`📋 "${newName}" যোগ হয়েছে`);
+}
+
+function deleteSheet(idx) {
+  if (sheets.length === 1) { showToast('⚠️ শেষ sheet মুছতে পারবেন না'); return; }
+  if (!confirm(`"${sheets[idx].name}" মুছে ফেলবেন?`)) return;
+  saveSheetState();
+  sheets.splice(idx, 1);
+  activeSheetIdx = Math.min(activeSheetIdx, sheets.length - 1);
+  loadSheetState(activeSheetIdx);
+  renderAll();
+  renderSheetTabs();
+}
+
+function renameSheet(idx, newName) {
+  const trimmed = newName.trim();
+  if (!trimmed) return;
+  sheets[idx].name = trimmed;
+  renderSheetTabs();
+}
+
+// Copy selected plots to a target sheet (cross-sheet copy)
+function copyPlotToSheet(plotId, targetSheetIdx) {
+  if (targetSheetIdx === activeSheetIdx) { showToast('⚠️ একই sheet এ copy করা যাবে না'); return; }
+  const p = plots.find(pl => pl.id === plotId);
+  if (!p) return;
+  saveSheetState();
+  const targetSheet = sheets[targetSheetIdx];
+  const newId = targetSheet.nextId++;
+  const offset = 20;
+  const newPlot = JSON.parse(JSON.stringify(p));
+  newPlot.id = newId;
+  newPlot.corners = translateCorners(newPlot.corners, offset, offset);
+  newPlot.labelPos = centerOf(newPlot.corners);
+  targetSheet.plots.push(newPlot);
+  showToast(`📋 প্লট ${p.label} → "${targetSheet.name}" তে copy হয়েছে`);
+}
+
+// ============================================================
+// UNDO / REDO HISTORY
+// ============================================================
+const HISTORY_LIMIT = 50;
+let undoStack = [];
+let redoStack = [];
+let pendingSnapshot = null; // snapshot taken at the start of an in-progress edit gesture
+
+function snapshotState(){
+  return {
+    plots: JSON.parse(JSON.stringify(plots)),
+    nextId,
+    selected,
+  };
+}
+
+// Call BEFORE making a change, to record what state to restore to on undo.
+function pushHistory(){
+  pendingSnapshot = snapshotState();
+}
+
+// Call AFTER a change is complete, to actually commit the snapshot taken by pushHistory()
+// onto the undo stack. Skips committing if nothing actually changed (e.g. a no-op edit).
+function commitHistory(){
+  if (!pendingSnapshot) return;
+  const before = JSON.stringify(pendingSnapshot.plots);
+  const after = JSON.stringify(plots);
+  if (before === after) { pendingSnapshot = null; return; } // no real change, don't clutter undo stack
+  undoStack.push(pendingSnapshot);
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack = []; // any new action invalidates the redo stack
+  pendingSnapshot = null;
+  updateUndoRedoButtons();
+}
+
+function undo(){
+  if (undoStack.length === 0) {
+    showToast('⏮️ আর Undo করার কিছু নেই');
+    return;
+  }
+  const current = snapshotState();
+  const prev = undoStack.pop();
+  redoStack.push(current);
+  if (redoStack.length > HISTORY_LIMIT) redoStack.shift();
+  plots = prev.plots;
+  nextId = prev.nextId;
+  selected = prev.selected;
+  if (selected) {
+    const p = plots.find(pl=>pl.id===selected);
+    if (p) refreshSideEditsFor(p); else selected = null;
+  }
+  showToast('↩️ Undo করা হয়েছে');
+  updateUndoRedoButtons();
+  renderAll();
+}
+
+function redo(){
+  if (redoStack.length === 0) {
+    showToast('⏭️ আর Redo করার কিছু নেই');
+    return;
+  }
+  const current = snapshotState();
+  const next = redoStack.pop();
+  undoStack.push(current);
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  plots = next.plots;
+  nextId = next.nextId;
+  selected = next.selected;
+  if (selected) {
+    const p = plots.find(pl=>pl.id===selected);
+    if (p) refreshSideEditsFor(p); else selected = null;
+  }
+  showToast('↪️ Redo করা হয়েছে');
+  updateUndoRedoButtons();
+  renderAll();
+}
+
+function updateUndoRedoButtons(){
+  const undoBtn = document.getElementById('undoBtn');
+  const redoBtn = document.getElementById('redoBtn');
+  if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+  if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+}
+
+// ============================================================
+// DOM REFS
+// ============================================================
+const svg = document.getElementById('svgCanvas');
+const bgRect = document.getElementById('bgRect');
+const plotsLayer = document.getElementById('plotsLayer');
+const scaleBarG = document.getElementById('scaleBar');
+const northG = document.getElementById('northArrow');
+const gpsLayerG = document.getElementById('gpsLayer');
+const mouzaLayerG = document.getElementById('mouzaLayer');
+const gpsLatEl = document.getElementById('gpsLat');
+const gpsLngEl = document.getElementById('gpsLng');
+const gpsCornerSelectEl = document.getElementById('gpsCornerSelect');
+const gpsAnchorStatusEl = document.getElementById('gpsAnchorStatus');
+const plotListEl = document.getElementById('plotList');
+const totalDecimalEl = document.getElementById('totalDecimal');
+const totalSqftEl = document.getElementById('totalSqft');
+const editPanelEl = document.getElementById('editPanel');
+const zoomSlider = document.getElementById('zoomSlider');
+const zoomVal = document.getElementById('zoomVal');
+const showSidesChk = document.getElementById('showSidesChk');
+const statusMsgEl = document.getElementById('statusMsg');
+const canvasWrap = document.getElementById('canvasWrap');
+const addedToast = document.getElementById('addedToast');
+
+const NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs={}) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function getCanvasExtent(){
+  let maxX = 350, maxY = 550; // minimum feet extent (matches original VW/VH baseline)
+  plots.forEach(p => {
+    shapePoints(p.corners).forEach(([x,y]) => {
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    });
+  });
+  // Also account for mouza image extent
+  if (mouzaImage && mouzaScale) {
+    const sizeRatio = (mouzaImage.imageScale || 100) / 100;
+    const imgWidthFt  = (mouzaImage.widthPx  / mouzaScale.pixelsPerFt) * sizeRatio;
+    const imgHeightFt = (mouzaImage.heightPx / mouzaScale.pixelsPerFt) * sizeRatio;
+    const offXFt = (mouzaImage.offsetX || 0) / mouzaScale.pixelsPerFt;
+    const offYFt = (mouzaImage.offsetY || 0) / mouzaScale.pixelsPerFt;
+    if (offXFt + imgWidthFt  > maxX) maxX = offXFt + imgWidthFt;
+    if (offYFt + imgHeightFt > maxY) maxY = offYFt + imgHeightFt;
+  }
+  return { w: (maxX + 30) * PX_PER_FT, h: (maxY + 30) * PX_PER_FT };
+}
+
+function renderMouza(){
+  mouzaLayerG.innerHTML = '';
+  if (!mouzaImage) return;
+
+  const opacity = (mouzaImage.opacity || 60) / 100;
+  const offX = mouzaImage.offsetX || 0; // in px
+  const offY = mouzaImage.offsetY || 0;
+  const sizeRatio = (mouzaImage.imageScale || 100) / 100; // user zoom: 1.0 = 100%
+
+  let imgW, imgH;
+  if (mouzaScale) {
+    // Image displayed at calibrated scale × user size ratio
+    const pxPerImgPx = PX_PER_FT / mouzaScale.pixelsPerFt;
+    imgW = mouzaImage.widthPx  * pxPerImgPx * sizeRatio;
+    imgH = mouzaImage.heightPx * pxPerImgPx * sizeRatio;
+  } else {
+    // No calibration yet: show at default size (fit ~300ft wide) × user size ratio
+    const defaultScale = (300 * PX_PER_FT) / mouzaImage.widthPx;
+    imgW = mouzaImage.widthPx  * defaultScale * sizeRatio;
+    imgH = mouzaImage.heightPx * defaultScale * sizeRatio;
+  }
+
+  const imgEl = svgEl('image', {
+    href: mouzaImage.dataUrl,
+    x: offX, y: offY,
+    width: imgW, height: imgH,
+    'image-rendering': 'crisp-edges',
+    opacity: opacity,
+    style: 'pointer-events:none;'
+  });
+  mouzaLayerG.appendChild(imgEl);
+
+  // Draw calibration points if in calibration mode
+  if (mouzaCalibPoints.length > 0) {
+    mouzaCalibPoints.forEach((pt, i) => {
+      const dot = svgEl('circle', {
+        cx: pt.svgX, cy: pt.svgY, r: 6,
+        fill: i === 0 ? '#f59e0b' : '#ef4444',
+        stroke: '#fff', 'stroke-width': 2,
+        style: 'pointer-events:none;'
+      });
+      mouzaLayerG.appendChild(dot);
+      const lbl = svgEl('text', {
+        x: pt.svgX+9, y: pt.svgY-4,
+        'font-size': 10, fill: i === 0 ? '#f59e0b' : '#ef4444',
+        'font-weight': 700, style: 'pointer-events:none;'
+      });
+      lbl.textContent = i === 0 ? 'A' : 'B';
+      mouzaLayerG.appendChild(lbl);
+    });
+    if (mouzaCalibPoints.length === 2) {
+      const [a, b] = mouzaCalibPoints;
+      const line = svgEl('line', {
+        x1: a.svgX, y1: a.svgY, x2: b.svgX, y2: b.svgY,
+        stroke: '#fbbf24', 'stroke-width': 1.5, 'stroke-dasharray': '4,3',
+        style: 'pointer-events:none;'
+      });
+      mouzaLayerG.appendChild(line);
+    }
+  }
+}
+
+
+function setSvgSize(){
+  const { w, h } = getCanvasExtent();
+  svg.setAttribute('width', w*zoom);
+  svg.setAttribute('height', h*zoom);
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  bgRect.setAttribute('width', w);
+  bgRect.setAttribute('height', h);
+}
+
+function edgeLabelProps(p1,p2){
+  const x1=p1[0]*PX_PER_FT, y1=p1[1]*PX_PER_FT;
+  const x2=p2[0]*PX_PER_FT, y2=p2[1]*PX_PER_FT;
+  const mx=(x1+x2)/2, my=(y1+y2)/2;
+  const dx=x2-x1, dy=y2-y1;
+  const len=Math.sqrt(dx*dx+dy*dy)||1;
+  const nx=-dy/len*10, ny=dx/len*10;
+  const angle=Math.atan2(dy,dx)*180/Math.PI;
+  const normAngle = angle>90?angle-180:angle<-90?angle+180:angle;
+  return {x:mx+nx, y:my+ny, rotate:normAngle};
+}
+
+function toSVGPts(c){
+  return shapePoints(c).map(([x,y])=>`${x*PX_PER_FT},${y*PX_PER_FT}`).join(" ");
+}
+
+function renderPlots(){
+  plotsLayer.innerHTML = "";
+  plots.forEach(p => {
+    const isSel = selected === p.id;
+    const isLocked = !!p.locked;
+    const dec = getDecimal(p.corners);
+    const sides = getSides(p.corners);
+    const [lx,ly] = p.labelPos;
+    const pts = shapePoints(p.corners);
+    const quad = isQuad(p.corners);
+
+    const g = svgEl('g', {class:'plot-group' + (isLocked?' locked':''), 'data-id':p.id});
+
+    const innerG = svgEl('g');
+    const poly = svgEl('polygon', {
+      points: toSVGPts(p.corners),
+      fill: p.color,
+      stroke: isSel ? '#1d4ed8' : p.border,
+      'stroke-width': isSel ? 2.5 : 1.8,
+      'fill-opacity': isLocked ? Math.min(getOpacity(p), 0.6) : getOpacity(p),
+    });
+    if (isLocked) poly.setAttribute('stroke-dasharray', '6,3');
+    if (isSel) poly.setAttribute('filter','url(#selGlow)');
+    innerG.appendChild(poly);
+
+    const t1 = svgEl('text', {x: lx*PX_PER_FT, y: ly*PX_PER_FT-10, 'text-anchor':'middle', 'font-size':16, 'font-weight':700, fill:'#1e293b'});
+    t1.textContent = (isLocked ? '🔒' : '') + p.label;
+    innerG.appendChild(t1);
+
+    const t2 = svgEl('text', {x: lx*PX_PER_FT, y: ly*PX_PER_FT+8, 'text-anchor':'middle', 'font-size':10, 'font-weight':600, fill:'#1d4ed8'});
+    t2.textContent = toBn(dec) + ' শ';
+    innerG.appendChild(t2);
+
+    const t3 = svgEl('text', {x: lx*PX_PER_FT, y: ly*PX_PER_FT+21, 'text-anchor':'middle', 'font-size':8.5, fill:'#475569'});
+    t3.textContent = toBn(getAreaFt(p.corners)) + ' বর্গফুট';
+    innerG.appendChild(t3);
+
+    if (showSides) {
+      const n = pts.length;
+      for (let ei = 0; ei < n; ei++) {
+        const p1 = pts[ei], p2 = pts[(ei+1)%n];
+        const len = quad ? sides[['N','E','S','W'][ei]] : sides[ei];
+        const prefix = quad ? (SIDE_LABELS[['N','E','S','W'][ei]] + ' ') : '';
+        const {x,y,rotate} = edgeLabelProps(p1,p2);
+        const txt = svgEl('text', {
+          x, y, 'text-anchor':'middle', 'dominant-baseline':'middle',
+          'font-size':8, fill: isSel ? '#1d4ed8' : '#374151',
+          'font-weight': isSel ? 700 : 400,
+          transform: `rotate(${rotate},${x},${y})`,
+          style: 'pointer-events:none;user-select:none;'
+        });
+        txt.textContent = prefix + toFeetInches(len);
+        innerG.appendChild(txt);
+      }
+    }
+
+    // Invisible thick edge hit-areas for right-click split (always present, not just when showSides)
+    {
+      const n = pts.length;
+      for (let ei = 0; ei < n; ei++) {
+        const p1 = pts[ei], p2 = pts[(ei+1)%n];
+        const hitLine = svgEl('line', {
+          x1: p1[0]*PX_PER_FT, y1: p1[1]*PX_PER_FT,
+          x2: p2[0]*PX_PER_FT, y2: p2[1]*PX_PER_FT,
+          stroke: 'transparent', 'stroke-width': 12,
+          style: 'cursor:context-menu;'
+        });
+        hitLine.dataset.plotId  = p.id;
+        hitLine.dataset.edgeIdx = ei;
+        hitLine.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          selectPlot(p.id);
+          showEdgeContextMenu(e, p.id, ei, e.clientX, e.clientY);
+        });
+        innerG.appendChild(hitLine);
+      }
+    }
+
+    if (showAngles) {
+      const n = pts.length;
+      for (let vi = 0; vi < n; vi++) {
+        const prev = pts[(vi - 1 + n) % n];
+        const cur  = pts[vi];
+        const next = pts[(vi + 1) % n];
+
+        // Vectors from cur to prev and cur to next
+        const ax = prev[0] - cur[0], ay = prev[1] - cur[1];
+        const bx = next[0] - cur[0], by = next[1] - cur[1];
+        const lenA = Math.sqrt(ax*ax + ay*ay) || 1;
+        const lenB = Math.sqrt(bx*bx + by*by) || 1;
+
+        // Interior angle in degrees via dot product
+        const dot = (ax*bx + ay*by) / (lenA * lenB);
+        const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+
+        // Draw arc indicating the angle
+        const R = 18; // arc radius in SVG pixels
+        const startAngle = Math.atan2(ay, ax);
+        const endAngle   = Math.atan2(by, bx);
+        const arcX = cur[0] * PX_PER_FT, arcY = cur[1] * PX_PER_FT;
+
+        // SVG arc path: M startPt A R R 0 largeArc sweep endPt
+        const sx = arcX + R * Math.cos(startAngle);
+        const sy = arcY + R * Math.sin(startAngle);
+        const ex = arcX + R * Math.cos(endAngle);
+        const ey = arcY + R * Math.sin(endAngle);
+
+        // Determine sweep: use the interior (smaller) arc
+        // Cross product to know winding
+        const cross = ax * by - ay * bx;
+        const sweep = cross < 0 ? 1 : 0; // 1 = clockwise in SVG (y-down)
+        const large = angleDeg > 180 ? 1 : 0;
+
+        const arc = svgEl('path', {
+          d: `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 ${large} ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`,
+          fill: 'none',
+          stroke: isSel ? '#f59e0b' : '#e879f9',
+          'stroke-width': '1.2',
+          style: 'pointer-events:none;'
+        });
+        innerG.appendChild(arc);
+
+        // Angle label — placed along the bisector direction from vertex, at radius R+10
+        const bisectAngle = (startAngle + endAngle) / 2 + (cross < 0 ? 0 : Math.PI);
+        const lblR = R + 11;
+        const lblX = arcX + lblR * Math.cos(bisectAngle);
+        const lblY = arcY + lblR * Math.sin(bisectAngle);
+
+        // Background pill for readability
+        const bgRect = svgEl('rect', {
+          x: (lblX - 14).toFixed(1), y: (lblY - 6).toFixed(1),
+          width: 28, height: 12, rx: 3,
+          fill: 'white', 'fill-opacity': 0.82,
+          style: 'pointer-events:none;'
+        });
+        innerG.appendChild(bgRect);
+
+        const angleTxt = svgEl('text', {
+          x: lblX.toFixed(2), y: lblY.toFixed(2),
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': 8, fill: isSel ? '#92400e' : '#7e22ce',
+          'font-weight': 700,
+          style: 'pointer-events:none;user-select:none;'
+        });
+        angleTxt.textContent = angleDeg.toFixed(1) + '°';
+        innerG.appendChild(angleTxt);
+      }
+    }
+
+    innerG.addEventListener('mousedown', (e) => startDragPlot(e, p.id));
+    innerG.addEventListener('click', (e) => { e.stopPropagation(); selectPlot(p.id); });
+    g.appendChild(innerG);
+
+    if (isSel && !isLocked) {
+      if (quad) {
+        ['nw','ne','se','sw'].forEach(ck => {
+          const [cx,cy] = p.corners[ck];
+          const handle = svgEl('circle', {
+            class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:7,
+            fill:'#2563eb', stroke:'#ffffff', 'stroke-width':2,
+          });
+          handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, ck));
+          g.appendChild(handle);
+        });
+      } else {
+        // General polygon: one draggable handle per vertex, addressed by index
+        pts.forEach((pt, idx) => {
+          const [cx,cy] = pt;
+          const handle = svgEl('circle', {
+            class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:7,
+            fill:'#2563eb', stroke:'#ffffff', 'stroke-width':2,
+          });
+          handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, idx));
+          g.appendChild(handle);
+        });
+      }
+    }
+
+    plotsLayer.appendChild(g);
+  });
+}
+
+function renderDecorations(){
+  const { w, h } = getCanvasExtent();
+  scaleBarG.innerHTML = "";
+  scaleBarG.setAttribute('transform', `translate(20,${h-25})`);
+  const bw = 100*PX_PER_FT;
+  const rect = svgEl('rect', {x:-3, y:-13, width:bw+6, height:18, fill:'white', 'fill-opacity':0.9, rx:3, stroke:'#cbd5e1', 'stroke-width':0.5});
+  scaleBarG.appendChild(rect);
+  const line = svgEl('line', {x1:0,y1:0,x2:bw,y2:0,stroke:'#1e293b','stroke-width':2});
+  scaleBarG.appendChild(line);
+  const tick1 = svgEl('line', {x1:0,y1:-4,x2:0,y2:4,stroke:'#1e293b','stroke-width':1.5});
+  scaleBarG.appendChild(tick1);
+  const tick2 = svgEl('line', {x1:bw,y1:-4,x2:bw,y2:4,stroke:'#1e293b','stroke-width':1.5});
+  scaleBarG.appendChild(tick2);
+  const lbl = svgEl('text', {x:bw/2, y:-5, 'text-anchor':'middle', 'font-size':7.5, fill:'#334155'});
+  lbl.textContent = '১০০ ফুট';
+  scaleBarG.appendChild(lbl);
+
+  northG.innerHTML = "";
+  northG.setAttribute('transform', `translate(${w-35},35)`);
+  const circle = svgEl('circle', {cx:0,cy:0,r:15,fill:'white',stroke:'#94a3b8','stroke-width':1,'fill-opacity':0.95});
+  northG.appendChild(circle);
+  const tri = svgEl('polygon', {points:'0,-12 4,3 0,-1 -4,3', fill:'#1e293b'});
+  northG.appendChild(tri);
+  const ntxt = svgEl('text', {x:0,y:10,'text-anchor':'middle','font-size':8,'font-weight':700,fill:'#1e293b'});
+  ntxt.textContent = 'N';
+  northG.appendChild(ntxt);
+}
+
+function renderSidebar(){
+  // plot list
+  plotListEl.innerHTML = "";
+  plots.forEach(p => {
+    const dec = getDecimal(p.corners);
+    const sides = getSides(p.corners);
+    const sidesText = isQuad(p.corners)
+      ? `উ:${toFeetInches(sides.N)} পূ:${toFeetInches(sides.E)} দ:${toFeetInches(sides.S)} প:${toFeetInches(sides.W)}`
+      : `${toBnLabel(sides.length)}-কোণা শেপ`;
+    const div = document.createElement('div');
+    div.className = 'plot-item' + (selected===p.id ? ' selected' : '');
+    div.innerHTML = `<b>${p.locked ? '🔒 ' : ''}প্লট ${p.label}</b><span class="dec">${toBn(dec)} শ</span>
+      <div class="sides">${sidesText}</div>`;
+    div.addEventListener('click', () => selectPlot(p.id));
+    plotListEl.appendChild(div);
+  });
+
+  // total
+  const totalDecimal = plots.reduce((s,p)=>s+getDecimal(p.corners),0);
+  totalDecimalEl.textContent = toBn(totalDecimal) + ' শ';
+  totalSqftEl.textContent = toBn(totalDecimal*SQ_FT_PER_DECIMAL) + ' বর্গফুট';
+
+  // edit panel
+  const selPlot = plots.find(p=>p.id===selected);
+  if (!selPlot) {
+    editPanelEl.style.display = 'none';
+    editPanelEl.innerHTML = '';
+    return;
+  }
+  editPanelEl.style.display = 'block';
+  const dec = getDecimal(selPlot.corners);
+  const areaFt = getAreaFt(selPlot.corners);
+  const isLocked = !!selPlot.locked;
+
+  editPanelEl.innerHTML = `
+    <div class="header-row">
+      <div class="title">✏️ প্লট ${selPlot.label}</div>
+      <div style="display:flex;gap:4px;">
+        <button class="btn" id="lockBtn" style="background:${isLocked ? '#f59e0b' : '#475569'};padding:3px 8px;font-size:10px;">
+          ${isLocked ? '🔒 লকড' : '🔓 লক করুন'}
+        </button>
+        <button class="btn" id="deleteBtn" style="background:#dc2626;padding:3px 8px;font-size:10px;">🗑️</button>
+      </div>
+    </div>
+
+    <div class="side-edit-row">
+      <div class="lbl">নাম পরিবর্তন (Rename)</div>
+      <div class="side-edit-inner">
+        <input type="text" id="renameInput" value="${selPlot.label}" ${isLocked?'disabled':''}>
+        <button class="btn" id="renameBtn" style="background:#0284c7;" ${isLocked?'disabled':''}>✔</button>
+      </div>
+    </div>
+
+    <div class="area-box">
+      <div class="lbl">ক্ষেত্রফল (শ) — সরাসরি বদলান</div>
+      <div class="side-edit-inner" style="margin-top:4px;">
+        <input type="text" id="decimalInput" value="${dec.toFixed(2)}" ${isLocked?'disabled':''}
+          style="flex:1;padding:5px 6px;border-radius:4px;border:1px solid #475569;background:#1e293b;color:#34d399;font-size:14px;font-weight:700;">
+        <button class="btn" id="applyDecimalBtn" style="background:#16a34a;" ${isLocked?'disabled':''}>✔</button>
+      </div>
+      <div class="sub" style="margin-top:4px;">${toBn(areaFt)} বর্গফুট</div>
+      ${gpsAnchor ? (() => {
+        const gpsPts = getPlotGPS(selPlot);
+        return `<div style="margin-top:8px;border-top:1px solid #334155;padding-top:6px;">
+          <div style="font-size:10px;color:#34d399;margin-bottom:4px;">📍 GPS কোণার স্থানাঙ্ক</div>
+          ${gpsPts.map(g=>`
+            <div style="margin-bottom:4px;">
+              <div style="font-size:9px;color:#94a3b8;">${g.key}</div>
+              <div style="font-size:9.5px;color:#e2e8f0;font-family:monospace;">${g.lat.toFixed(6)}°N</div>
+              <div style="font-size:9.5px;color:#e2e8f0;font-family:monospace;">${g.lng.toFixed(6)}°E</div>
+            </div>
+          `).join('')}
+        </div>`;
+      })() : '<div style="font-size:9px;color:#475569;margin-top:5px;">GPS দিতে নিচের GPS panel ব্যবহার করুন</div>'}
+      ${isLocked ? '<div style="color:#f59e0b;font-size:9.5px;margin-top:4px;">🔒 এই প্লট লকড — পরিবর্তন বন্ধ আছে</div>' : ''}
+    </div>
+
+    <div id="sideInputs"></div>
+
+    <div class="field-label" style="margin-top:6px;">🔄 ঘোরান (Rotate)</div>
+    <div style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
+      <button class="btn" id="rotateLeftBtn" style="background:#0284c7;" ${isLocked?'disabled':''}>↺ ১৫°</button>
+      <input type="range" id="rotateSlider" min="0" max="359" step="1" value="0" style="flex:1;" ${isLocked?'disabled':''}>
+      <button class="btn" id="rotateRightBtn" style="background:#0284c7;" ${isLocked?'disabled':''}>↻ ১৫°</button>
+    </div>
+
+    <div class="field-label">রঙ</div>
+    <div class="color-row" id="colorRow"></div>
+
+    <div class="field-label" style="margin-top:8px;">🌫️ স্বচ্ছতা (Transparency)</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+      <input type="range" id="opacitySlider" min="0" max="100" step="5" value="${Math.round(getOpacity(selPlot)*100)}" style="flex:1;" ${isLocked?'disabled':''}>
+      <span id="opacityVal" style="font-size:10px;color:#94a3b8;min-width:32px;text-align:right;">${Math.round(getOpacity(selPlot)*100)}%</span>
+    </div>
+
+    <div class="field-label" style="margin-top:10px;border-top:1px solid #334155;padding-top:8px;">🗂️ ওভারল্যাপ ক্রম (Layer Order)</div>
+    <div class="btn-row">
+      <button class="btn" id="bringToFrontBtn" style="background:#0284c7;flex:1;" ${isLocked?'disabled':''}>⬆️ সবার সামনে</button>
+      <button class="btn" id="sendToBackBtn" style="background:#0284c7;flex:1;" ${isLocked?'disabled':''}>⬇️ সবার পিছনে</button>
+    </div>
+    <div class="btn-row" style="margin-top:4px;">
+      <button class="btn" id="bringForwardBtn" style="background:#475569;flex:1;" ${isLocked?'disabled':''}>↗️ এক ধাপ সামনে</button>
+      <button class="btn" id="sendBackwardBtn" style="background:#475569;flex:1;" ${isLocked?'disabled':''}>↙️ এক ধাপ পিছনে</button>
+    </div>
+
+    <div class="field-label" style="margin-top:10px;border-top:1px solid #334155;padding-top:8px;">📋 কপি / পেস্ট</div>
+    <div class="btn-row">
+      <button class="btn" id="copyPlotBtn" style="background:#0284c7;flex:1;">📋 কপি (Ctrl+C)</button>
+      <button class="btn" id="pastePlotBtn" style="background:#16a34a;flex:1;" ${clipboardPlot ? '' : 'disabled'}>📥 পেস্ট (Ctrl+V)</button>
+    </div>
+    <div style="font-size:9px;color:#64748b;margin-top:3px;">${clipboardPlot ? `ক্লিপবোর্ডে আছে: প্লট ${clipboardPlot.baseLabel}` : 'কপি করার পর পেস্ট করা যাবে'}</div>
+
+    ${sheets.length > 1 ? `
+    <div class="field-label" style="margin-top:8px;">📤 অন্য Sheet এ কপি করুন</div>
+    <div class="side-edit-inner">
+      <select id="copyToSheetSelect" style="flex:1;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;">
+        ${sheets.map((s,i)=>i===activeSheetIdx ? '' : `<option value="${i}">${s.name}</option>`).join('')}
+      </select>
+      <button class="btn" id="copyToSheetBtn" style="background:#0d9488;">📤 কপি</button>
+    </div>
+    ` : `<div style="font-size:9px;color:#475569;margin-top:4px;">একাধিক Sheet থাকলে অন্য Sheet এ copy করা যাবে</div>`}
+
+    <div class="field-label" style="margin-top:10px;border-top:1px solid #334155;padding-top:8px;">🔗 অন্য প্লটের সাথে একত্র করুন (Merge)</div>
+    <div class="side-edit-inner">
+      <select id="mergeSelect" ${isLocked?'disabled':''} style="flex:1;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;">
+        <option value="">— প্লট বাছাই করুন —</option>
+        ${plots.filter(pp=>pp.id!==selPlot.id).map(pp=>`<option value="${pp.id}">প্লট ${pp.label}</option>`).join('')}
+      </select>
+      <button class="btn" id="mergeBtn" style="background:#7c3aed;" ${isLocked?'disabled':''}>🔗 মার্জ</button>
+    </div>
+    <div style="font-size:9px;color:#64748b;margin-top:3px;">দুটো প্লট একদম পাশাপাশি লাগানো থাকলে তাদের আসল শেপ (৪/৫/৬/৮+ কোণা) ঠিক রেখেই একত্র হবে, area যোগ হয়ে যাবে</div>
+  `;
+
+  const sideInputsEl = document.getElementById('sideInputs');
+  const sides = getSides(selPlot.corners);
+  if (isQuad(selPlot.corners)) {
+    if (!selPlot.lockedSides) selPlot.lockedSides = { N:false, E:false, S:false, W:false };
+    ['N','W','S','E'].forEach(side => {
+      if (sideEdits[side] === undefined) sideEdits[side] = String(sides[side]);
+      const sideLocked = !!selPlot.lockedSides[side];
+      const row = document.createElement('div');
+      row.className = 'side-edit-row';
+      row.innerHTML = `
+        <div class="lbl">${SIDE_LABELS[side]} — ফুট <span style="color:#64748b;">(${toFeetInches(sides[side])})</span></div>
+        <div class="side-edit-inner">
+          <input type="text" data-side="${side}" value="${sideEdits[side]}" ${(isLocked||sideLocked)?'disabled':''}>
+          <button class="btn" data-apply="${side}" style="background:#2563eb;" ${(isLocked||sideLocked)?'disabled':''}>✔</button>
+          <button class="btn" data-lockside="${side}" title="${sideLocked?'এই বাহু আনলক করুন':'এই বাহু লক করুন'}"
+            style="background:${sideLocked?'#f59e0b':'#334155'};padding:4px 7px;font-size:11px;"
+            ${isLocked?'disabled':''}>${sideLocked?'🔒':'🔓'}</button>
+        </div>
+      `;
+      sideInputsEl.appendChild(row);
+    });
+
+    sideInputsEl.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        sideEdits[e.target.dataset.side] = e.target.value;
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') applySideChange(e.target.dataset.side);
+      });
+    });
+    sideInputsEl.querySelectorAll('button[data-apply]').forEach(btn => {
+      btn.addEventListener('click', () => applySideChange(btn.dataset.apply));
+    });
+    sideInputsEl.querySelectorAll('button[data-lockside]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const side = btn.dataset.lockside;
+        if (!selPlot.lockedSides) selPlot.lockedSides = { N:false, E:false, S:false, W:false };
+        selPlot.lockedSides[side] = !selPlot.lockedSides[side];
+        const locked = selPlot.lockedSides[side];
+        showToast(locked
+          ? `🔒 ${SIDE_LABELS[side]} বাহু লক — এখন drag/resize এ বদলাবে না`
+          : `🔓 ${SIDE_LABELS[side]} বাহু আনলক`);
+        renderAll();
+      });
+    });
+  } else {
+    // General polygon (5+ sides): editable inputs indexed by position (0,1,2...)
+    // with per-side lock buttons, same UX as quad but using numeric indices
+    if (!selPlot.lockedSides) selPlot.lockedSides = {};
+    sides.forEach((len, idx) => {
+      const sideLocked = !!selPlot.lockedSides[idx];
+      if (sideEdits[idx] === undefined) sideEdits[idx] = String(len.toFixed(2));
+      const row = document.createElement('div');
+      row.className = 'side-edit-row';
+      row.innerHTML = `
+        <div class="lbl">বাহু ${toBnLabel(idx+1)} <span style="color:#64748b;">(${toFeetInches(len)})</span></div>
+        <div class="side-edit-inner">
+          <input type="text" data-polyidx="${idx}" value="${sideEdits[idx]}" ${(isLocked||sideLocked)?'disabled':''}>
+          <button class="btn" data-polyapply="${idx}" style="background:#2563eb;" ${(isLocked||sideLocked)?'disabled':''}>✔</button>
+          <button class="btn" data-polylockside="${idx}" title="${sideLocked?'আনলক করুন':'লক করুন'}"
+            style="background:${sideLocked?'#f59e0b':'#334155'};padding:4px 7px;font-size:11px;"
+            ${isLocked?'disabled':''}>${sideLocked?'🔒':'🔓'}</button>
+        </div>
+      `;
+      sideInputsEl.appendChild(row);
+    });
+
+    sideInputsEl.querySelectorAll('input[data-polyidx]').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        sideEdits[parseInt(e.target.dataset.polyidx)] = e.target.value;
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') applyPolySideChange(parseInt(e.target.dataset.polyidx));
+      });
+    });
+    sideInputsEl.querySelectorAll('button[data-polyapply]').forEach(btn => {
+      btn.addEventListener('click', () => applyPolySideChange(parseInt(btn.dataset.polyapply)));
+    });
+    sideInputsEl.querySelectorAll('button[data-polylockside]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.polylockside);
+        if (!selPlot.lockedSides) selPlot.lockedSides = {};
+        selPlot.lockedSides[idx] = !selPlot.lockedSides[idx];
+        showToast(selPlot.lockedSides[idx]
+          ? `🔒 বাহু ${toBnLabel(idx+1)} লক হয়েছে`
+          : `🔓 বাহু ${toBnLabel(idx+1)} আনলক হয়েছে`);
+        renderAll();
+      });
+    });
+  }
+
+  const colorRow = document.getElementById('colorRow');
+  COLORS.forEach(([bg,bd]) => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (selPlot.color===bg ? ' active' : '');
+    sw.style.background = bg;
+    sw.style.borderColor = bd;
+    sw.addEventListener('click', () => {
+      if (selPlot.locked) return;
+      pushHistory();
+      selPlot.color = bg; selPlot.border = bd;
+      commitHistory();
+      renderAll();
+    });
+    colorRow.appendChild(sw);
+  });
+
+  document.getElementById('deleteBtn').addEventListener('click', deletePlot);
+  document.getElementById('lockBtn').addEventListener('click', toggleLock);
+
+  const decimalInput = document.getElementById('decimalInput');
+  const applyDecimalBtn = document.getElementById('applyDecimalBtn');
+  applyDecimalBtn.addEventListener('click', () => applyDecimalChange(decimalInput.value));
+  decimalInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') applyDecimalChange(decimalInput.value);
+  });
+
+  document.getElementById('rotateLeftBtn').addEventListener('click', () => applyRotation(-15));
+  document.getElementById('rotateRightBtn').addEventListener('click', () => applyRotation(15));
+  const rotateSliderEl = document.getElementById('rotateSlider');
+  let lastSliderVal = 0;
+  rotateSliderEl.addEventListener('input', (e) => {
+    const newVal = parseInt(e.target.value);
+    const delta = newVal - lastSliderVal;
+    lastSliderVal = newVal;
+    applyRotation(delta, true);
+  });
+  rotateSliderEl.addEventListener('change', endRotationGesture);
+  rotateSliderEl.addEventListener('mouseup', endRotationGesture);
+
+  const opacitySliderEl = document.getElementById('opacitySlider');
+  const opacityValEl = document.getElementById('opacityVal');
+  let opacityGestureActive = false;
+  opacitySliderEl.addEventListener('input', (e) => {
+    if (!opacityGestureActive) { pushHistory(); opacityGestureActive = true; }
+    const pct = parseInt(e.target.value);
+    opacityValEl.textContent = pct + '%';
+    selPlot.opacity = pct / 100;
+    setSvgSize(); renderPlots(); renderDecorations(); // lightweight re-render, skip rebuilding sidebar (keeps slider focus)
+  });
+  function endOpacityGesture(){
+    if (opacityGestureActive) { opacityGestureActive = false; commitHistory(); }
+  }
+  opacitySliderEl.addEventListener('change', endOpacityGesture);
+  opacitySliderEl.addEventListener('mouseup', endOpacityGesture);
+
+  document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
+  document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
+  document.getElementById('bringForwardBtn').addEventListener('click', bringForward);
+  document.getElementById('sendBackwardBtn').addEventListener('click', sendBackward);
+
+  document.getElementById('copyPlotBtn').addEventListener('click', () => copyPlot(selPlot.id));
+  const pasteBtn = document.getElementById('pastePlotBtn');
+  if (pasteBtn) pasteBtn.addEventListener('click', pastePlot);
+
+  const copyToSheetBtn = document.getElementById('copyToSheetBtn');
+  const copyToSheetSelect = document.getElementById('copyToSheetSelect');
+  if (copyToSheetBtn && copyToSheetSelect) {
+    copyToSheetBtn.addEventListener('click', () => {
+      const targetIdx = parseInt(copyToSheetSelect.value);
+      if (!isNaN(targetIdx)) {
+        copyPlotToSheet(selPlot.id, targetIdx);
+      }
+    });
+  }
+
+  const renameInput = document.getElementById('renameInput');
+  const renameBtn = document.getElementById('renameBtn');
+  renameBtn.addEventListener('click', () => applyRename(renameInput.value));
+  renameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') applyRename(renameInput.value);
+  });
+
+  const mergeSelect = document.getElementById('mergeSelect');
+  const mergeBtn = document.getElementById('mergeBtn');
+  mergeBtn.addEventListener('click', () => {
+    const otherId = parseInt(mergeSelect.value);
+    if (!otherId) {
+      statusMsgEl.textContent = '⚠️ আগে মার্জ করার জন্য একটা প্লট বাছাই করুন';
+      setTimeout(()=>statusMsgEl.textContent='', 2500);
+      return;
+    }
+    mergePlots(selPlot.id, otherId);
+  });
+}
+
+function renderGPS(){
+  gpsLayerG.innerHTML = "";
+  if (!gpsAnchor) return;
+
+  // Draw anchor marker (small green circle with crosshairs)
+  const ax = gpsAnchor.canvasX * PX_PER_FT, ay = gpsAnchor.canvasY * PX_PER_FT;
+  const anchorG = svgEl('g');
+  anchorG.appendChild(svgEl('circle', {cx:ax,cy:ay,r:6,fill:'#34d399',stroke:'#ffffff','stroke-width':2,'fill-opacity':0.9}));
+  const l1 = svgEl('line', {x1:ax-10,y1:ay,x2:ax+10,y2:ay,stroke:'#34d399','stroke-width':1.5});
+  const l2 = svgEl('line', {x1:ax,y1:ay-10,x2:ax,y2:ay+10,stroke:'#34d399','stroke-width':1.5});
+  anchorG.appendChild(l1); anchorG.appendChild(l2);
+  const anchorTxt = svgEl('text', {x:ax+8, y:ay-8, 'font-size':8, fill:'#34d399', 'font-weight':700});
+  anchorTxt.textContent = '📍 Anchor';
+  anchorG.appendChild(anchorTxt);
+  gpsLayerG.appendChild(anchorG);
+
+  // Draw GPS coordinates at each corner of every plot
+  plots.forEach(p => {
+    const pts = shapePoints(p.corners);
+    const quad = isQuad(p.corners);
+    const cornerKeys = quad ? ['NW','NE','SE','SW'] : pts.map((_,i)=>`P${i+1}`);
+
+    pts.forEach((pt, i) => {
+      const gps = canvasToGPS(pt[0], pt[1], gpsAnchor);
+      const px = pt[0]*PX_PER_FT, py = pt[1]*PX_PER_FT;
+
+      // Small dot at each corner
+      const dot = svgEl('circle', {cx:px, cy:py, r:3, fill:'#34d399', 'fill-opacity':0.8, style:'pointer-events:none;'});
+      gpsLayerG.appendChild(dot);
+
+      // Tooltip-style GPS label box
+      const labelG = svgEl('g', {style:'pointer-events:none;'});
+      const latStr = gps.lat.toFixed(6) + '°N';
+      const lngStr = gps.lng.toFixed(6) + '°E';
+      const bw = 102, bh = 26, bx = px+4, by = py-28;
+      const bg = svgEl('rect', {x:bx-2, y:by-1, width:bw, height:bh, fill:'#0f172a', 'fill-opacity':0.85, rx:3, stroke:'#34d399', 'stroke-width':0.5});
+      labelG.appendChild(bg);
+      const t1 = svgEl('text', {x:bx, y:by+10, 'font-size':7.5, fill:'#34d399', 'font-family':'monospace'});
+      t1.textContent = latStr;
+      const t2 = svgEl('text', {x:bx, y:by+20, 'font-size':7.5, fill:'#a5f3fc', 'font-family':'monospace'});
+      t2.textContent = lngStr;
+      labelG.appendChild(t1); labelG.appendChild(t2);
+      gpsLayerG.appendChild(labelG);
+    });
+  });
+}
+
+function populateGPSCornerSelect(){
+  gpsCornerSelectEl.innerHTML = '<option value="">— প্লট ও কোণা বাছাই করুন —</option>';
+  plots.forEach(p => {
+    const pts = shapePoints(p.corners);
+    const quad = isQuad(p.corners);
+    const cornerNames = quad ? ['উ-প (NW)','উ-পূ (NE)','দ-পূ (SE)','দ-প (SW)'] : pts.map((_,i)=>`কোণা ${i+1}`);
+    pts.forEach((pt, i) => {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({x: pt[0], y: pt[1]});
+      opt.textContent = `প্লট ${p.label} — ${cornerNames[i]}`;
+      gpsCornerSelectEl.appendChild(opt);
+    });
+  });
+}
+
+function renderSheetTabs() {
+  const tabsEl = document.getElementById('sheetTabs');
+  if (!tabsEl) return;
+  tabsEl.innerHTML = '';
+
+  sheets.forEach((s, idx) => {
+    const tab = document.createElement('div');
+    tab.className = 'sheet-tab' + (idx === activeSheetIdx ? ' active' : '');
+
+    if (idx === activeSheetIdx) {
+      // Active tab: show editable name input
+      const inp = document.createElement('input');
+      inp.className = 'tab-rename-input';
+      inp.value = s.name;
+      inp.style.width = Math.max(60, s.name.length * 9) + 'px';
+      inp.addEventListener('input', (e) => {
+        inp.style.width = Math.max(60, e.target.value.length * 9) + 'px';
+      });
+      inp.addEventListener('change', (e) => renameSheet(idx, e.target.value));
+      inp.addEventListener('blur', (e) => renameSheet(idx, e.target.value));
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') inp.blur();
+        e.stopPropagation(); // don't trigger arrow-key plot movement
+      });
+      tab.appendChild(inp);
+    } else {
+      // Inactive tab: just a click target
+      const span = document.createElement('span');
+      span.textContent = s.name;
+      span.style.cssText = 'pointer-events:none;';
+      tab.appendChild(span);
+      tab.addEventListener('click', () => switchToSheet(idx));
+    }
+
+    // Close button (×) — only show if more than 1 sheet
+    if (sheets.length > 1) {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tab-close';
+      closeBtn.textContent = '×';
+      closeBtn.title = 'Sheet মুছুন';
+      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteSheet(idx); });
+      tab.appendChild(closeBtn);
+    }
+
+    tabsEl.appendChild(tab);
+  });
+}
+
+function renderAll(){
+  setSvgSize();
+  renderMouza();
+  renderPlots();
+  renderGPS();
+  renderDecorations();
+  renderSidebar();
+  populateGPSCornerSelect();
+  renderSheetTabs();
+}
+
+// ============================================================
+// ACTIONS
+// ============================================================
+function selectPlot(id){
+  selected = id;
+  const p = plots.find(pl=>pl.id===id);
+  if (p) refreshSideEditsFor(p);
+  renderAll();
+}
+
+function deselectAll(){
+  selected = null;
+  renderAll();
+}
+
+function applySideChange(side){
+  if (!selected) return;
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p || p.locked) return;
+  if (p.lockedSides && p.lockedSides[side]) {
+    showToast(`🔒 ${SIDE_LABELS[side]} বাহু লকড — আনলক করে তারপর বদলান`);
+    return;
+  }
+  const val = parseFloat(toEn(sideEdits[side]));
+  if (isNaN(val) || val <= 0) return;
+  pushHistory();
+  p.corners = updateSide(p.corners, side, val);
+  p.labelPos = centerOf(p.corners);
+  refreshSideEditsFor(p);
+  commitHistory();
+  renderAll();
+}
+
+// For general N-sided polygons: scale edge at index `edgeIdx` to newLen feet.
+// Moves the SECOND vertex of that edge (index edgeIdx+1) along the edge direction.
+function applyPolySideChange(edgeIdx){
+  if (!selected) return;
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p || p.locked) return;
+  if (p.lockedSides && p.lockedSides[edgeIdx]) {
+    showToast(`🔒 বাহু ${toBnLabel(edgeIdx+1)} লকড — আনলক করে তারপর বদলান`);
+    return;
+  }
+  const val = parseFloat(toEn(String(sideEdits[edgeIdx])));
+  if (isNaN(val) || val <= 0) return;
+  const pts = p.corners.slice(); // array of [x,y]
+  const n = pts.length;
+  const i = edgeIdx;
+  const j = (i + 1) % n;
+  const [ax, ay] = pts[i];
+  const [bx, by] = pts[j];
+  const dx = bx - ax, dy = by - ay;
+  const oldLen = Math.sqrt(dx*dx + dy*dy) || 1;
+  const ratio = val / oldLen;
+  pts[j] = [ax + dx*ratio, ay + dy*ratio];
+  pushHistory();
+  p.corners = pts;
+  p.labelPos = centerOf(p.corners);
+  // Refresh sideEdits for the updated polygon
+  const newSides = getSides(p.corners);
+  newSides.forEach((len, idx) => { sideEdits[idx] = String(len.toFixed(2)); });
+  commitHistory();
+  renderAll();
+}
+
+function deletePlot(){
+  if (!selected) return;
+  pushHistory();
+  plots = plots.filter(p=>p.id!==selected);
+  selected = null;
+  commitHistory();
+  renderAll();
+}
+
+// ── Layer order (z-index via array position; later = drawn on top) ──
+function bringToFront(){
+  if (!selected) return;
+  const idx = plots.findIndex(p=>p.id===selected);
+  if (idx === -1 || idx === plots.length-1) return; // already at front
+  pushHistory();
+  const [p] = plots.splice(idx, 1);
+  plots.push(p);
+  showToast(`⬆️ প্লট ${p.label} সবার সামনে আনা হয়েছে`);
+  commitHistory();
+  renderAll();
+}
+
+function sendToBack(){
+  if (!selected) return;
+  const idx = plots.findIndex(p=>p.id===selected);
+  if (idx === -1 || idx === 0) return; // already at back
+  pushHistory();
+  const [p] = plots.splice(idx, 1);
+  plots.unshift(p);
+  showToast(`⬇️ প্লট ${p.label} সবার পিছনে পাঠানো হয়েছে`);
+  commitHistory();
+  renderAll();
+}
+
+function bringForward(){
+  if (!selected) return;
+  const idx = plots.findIndex(p=>p.id===selected);
+  if (idx === -1 || idx === plots.length-1) return; // already at front
+  pushHistory();
+  const [p] = plots.splice(idx, 1);
+  plots.splice(idx+1, 0, p);
+  showToast(`↗️ প্লট ${p.label} এক ধাপ সামনে আনা হয়েছে`);
+  commitHistory();
+  renderAll();
+}
+
+function sendBackward(){
+  if (!selected) return;
+  const idx = plots.findIndex(p=>p.id===selected);
+  if (idx === -1 || idx === 0) return; // already at back
+  pushHistory();
+  const [p] = plots.splice(idx, 1);
+  plots.splice(idx-1, 0, p);
+  showToast(`↙️ প্লট ${p.label} এক ধাপ পিছনে পাঠানো হয়েছে`);
+  commitHistory();
+  renderAll();
+}
+
+function toggleLock(){
+  if (!selected) return;
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p) return;
+  pushHistory();
+  p.locked = !p.locked;
+  showToast(p.locked ? `🔒 প্লট ${p.label} লক করা হয়েছে` : `🔓 প্লট ${p.label} আনলক করা হয়েছে`);
+  commitHistory();
+  renderAll();
+}
+
+function applyRename(newLabel){
+  if (!selected) return;
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p || p.locked) return;
+  const trimmed = String(newLabel).trim();
+  if (!trimmed) return;
+  pushHistory();
+  const oldLabel = p.label;
+  p.label = trimmed;
+  showToast(`✏️ "${oldLabel}" থেকে "${trimmed}" নাম পরিবর্তন হয়েছে`);
+  commitHistory();
+  renderAll();
+}
+
+function mergePlots(idA, idB){
+  const a = plots.find(p=>p.id===idA);
+  const b = plots.find(p=>p.id===idB);
+  if (!a || !b) return;
+  if (a.locked || b.locked) {
+    statusMsgEl.textContent = '🔒 লকড প্লট মার্জ করা যাবে না — আগে আনলক করুন';
+    setTimeout(()=>statusMsgEl.textContent='', 3000);
+    return;
+  }
+
+  const unioned = unionAdjacentShapes(a.corners, b.corners);
+  if (!unioned) {
+    showToastLong(`⚠️ প্লট ${a.label} ও ${b.label} সরাসরি লাগানো নেই। আগে একটাকে drag করে অন্যটার পাশে এনে (magnet snap কাজ করবে কাছাকাছি আনলে) পুরোপুরি লাগিয়ে দিন, তারপর আবার Merge চাপুন।`);
+    return;
+  }
+
+  pushHistory(); // save undo snapshot before the destructive merge
+
+  const sumDecimal = getDecimal(a.corners) + getDecimal(b.corners);
+  const mergedLabel = `${a.label}+${b.label}`;
+  const merged = {
+    id: a.id,
+    label: mergedLabel,
+    color: a.color,
+    border: a.border,
+    locked: false,
+    corners: unioned, // general polygon — preserves the EXACT combined shape (4,5,6,8+ sides)
+    labelPos: centerOf(unioned),
+  };
+
+  plots = plots.filter(p => p.id !== idA && p.id !== idB);
+  plots.push(merged);
+  selected = merged.id;
+  refreshSideEditsFor(merged);
+
+  const newDecimal = getDecimal(unioned);
+  const sideCount = unioned.length;
+  showToast(`🔗 প্লট ${a.label} ও ${b.label} মার্জ হয়ে "${mergedLabel}" (${toBn(sideCount)}-কোণা শেপ) হয়েছে — ${toBn(newDecimal)} শ`);
+  commitHistory();
+  renderAll();
+}
+
+function refreshSideEditsFor(plot){
+  const sides = getSides(plot.corners);
+  if (isQuad(plot.corners)) {
+    sideEdits = { N:String(sides.N), E:String(sides.E), S:String(sides.S), W:String(sides.W) };
+  } else {
+    // General polygon: index-based sideEdits
+    sideEdits = {};
+    sides.forEach((len, idx) => { sideEdits[idx] = String(len.toFixed(2)); });
+  }
+}
+
+function applyDecimalChange(rawVal){
+  if (!selected) return;
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p || p.locked) return;
+  const val = parseFloat(toEn(rawVal));
+  if (isNaN(val) || val <= 0) return;
+  pushHistory();
+  p.corners = scaleToDecimal(p.corners, val);
+  p.labelPos = centerOf(p.corners);
+  refreshSideEditsFor(p);
+  commitHistory();
+  renderAll();
+}
+
+function applyRotation(deltaDeg, skipRender){
+  if (!selected) return;
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p || p.locked) return;
+  if (!skipRender || !rotationGestureActive) {
+    pushHistory();
+  }
+  if (skipRender) rotationGestureActive = true;
+  p.corners = rotateCorners(p.corners, deltaDeg);
+  refreshSideEditsFor(p);
+  if (skipRender) {
+    // lightweight render: skip rebuilding sidebar inputs (avoids losing slider focus)
+    setSvgSize();
+    renderPlots();
+    renderDecorations();
+    // update only the numeric displays in the edit panel without rebuilding it
+    const decimalInput = document.getElementById('decimalInput');
+    if (decimalInput) decimalInput.value = getDecimal(p.corners).toFixed(2);
+    // refresh plot list + total without full edit-panel rebuild
+    updateListAndTotalsOnly();
+  } else {
+    commitHistory();
+    renderAll();
+  }
+}
+let rotationGestureActive = false;
+function endRotationGesture(){
+  if (rotationGestureActive) {
+    rotationGestureActive = false;
+    commitHistory();
+  }
+}
+
+function updateListAndTotalsOnly(){
+  plotListEl.innerHTML = "";
+  plots.forEach(p => {
+    const dec = getDecimal(p.corners);
+    const sides = getSides(p.corners);
+    const sidesText = isQuad(p.corners)
+      ? `উ:${toFeetInches(sides.N)} পূ:${toFeetInches(sides.E)} দ:${toFeetInches(sides.S)} প:${toFeetInches(sides.W)}`
+      : `${sides.length}-কোণা শেপ`;
+    const div = document.createElement('div');
+    div.className = 'plot-item' + (selected===p.id ? ' selected' : '');
+    div.innerHTML = `<b>${p.locked ? '🔒 ' : ''}প্লট ${p.label}</b><span class="dec">${toBn(dec)} শ</span>
+      <div class="sides">${sidesText}</div>`;
+    div.addEventListener('click', () => selectPlot(p.id));
+    plotListEl.appendChild(div);
+  });
+  const totalDecimal = plots.reduce((s,p)=>s+getDecimal(p.corners),0);
+  totalDecimalEl.textContent = toBn(totalDecimal) + ' শ';
+  totalSqftEl.textContent = toBn(totalDecimal*SQ_FT_PER_DECIMAL) + ' বর্গফুট';
+}
+
+// Arrow-key movement for selected plot
+const ARROW_STEP_FT = 1; // feet per key press (Shift = 5ft)
+let arrowMoveSessionActive = false;
+let arrowMoveSessionTimer = null;
+function handleArrowKeyMove(e){
+  if (!selected) return;
+  // Don't hijack arrow keys while typing in an input/textarea
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+
+  const p = plots.find(pl=>pl.id===selected);
+  if (!p || p.locked) return;
+
+  let dx=0, dy=0;
+  const step = e.shiftKey ? ARROW_STEP_FT*5 : ARROW_STEP_FT;
+  if (e.key === 'ArrowUp') dy = -step;
+  else if (e.key === 'ArrowDown') dy = step;
+  else if (e.key === 'ArrowLeft') dx = -step;
+  else if (e.key === 'ArrowRight') dx = step;
+  else return;
+
+  e.preventDefault();
+  if (!arrowMoveSessionActive) {
+    pushHistory();
+    arrowMoveSessionActive = true;
+  }
+  clearTimeout(arrowMoveSessionTimer);
+  arrowMoveSessionTimer = setTimeout(() => {
+    arrowMoveSessionActive = false;
+    commitHistory();
+  }, 500);
+
+  p.corners = translateCorners(p.corners, dx, dy);
+  p.labelPos = centerOf(p.corners);
+  renderAll();
+}
+window.addEventListener('keydown', handleArrowKeyMove);
+
+// ── Edge right-click context menu ──────────────────────────────
+const edgeContextMenuEl = document.getElementById('edgeContextMenu');
+let edgeContextTarget = null; // { plotId, edgeIdx, svgX, svgY }
+
+function showEdgeContextMenu(e, plotId, edgeIdx, clientX, clientY) {
+  // Convert clientX/Y to SVG coordinates for the split point
+  const svgPt = svg.createSVGPoint();
+  svgPt.x = clientX; svgPt.y = clientY;
+  const svgCoord = svgPt.matrixTransform(svg.getScreenCTM().inverse());
+
+  edgeContextTarget = { plotId, edgeIdx, svgX: svgCoord.x, svgY: svgCoord.y };
+
+  edgeContextMenuEl.style.display = 'block';
+  // Position near cursor, keep within viewport
+  const menuW = 190, menuH = 44;
+  let left = clientX + 4;
+  let top  = clientY + 4;
+  if (left + menuW > window.innerWidth)  left = clientX - menuW - 4;
+  if (top  + menuH > window.innerHeight) top  = clientY - menuH - 4;
+  edgeContextMenuEl.style.left = left + 'px';
+  edgeContextMenuEl.style.top  = top  + 'px';
+}
+
+function hideEdgeContextMenu() {
+  edgeContextMenuEl.style.display = 'none';
+  edgeContextTarget = null;
+}
+
+function splitEdge() {
+  if (!edgeContextTarget) return;
+  const { plotId, edgeIdx, svgX, svgY } = edgeContextTarget;
+  const p = plots.find(pl => pl.id === plotId);
+  if (!p) { hideEdgeContextMenu(); return; }
+
+  pushHistory();
+
+  const pts = shapePoints(p.corners);
+  const n = pts.length;
+  const i = edgeIdx;
+  const j = (i + 1) % n;
+
+  // Split point: use the right-click position projected onto the edge,
+  // so the split is exactly where the user clicked (not always midpoint)
+  const [ax, ay] = pts[i];
+  const [bx, by] = pts[j];
+  const fx = svgX / PX_PER_FT, fy = svgY / PX_PER_FT;
+
+  // Project click point onto the edge segment
+  const dx = bx-ax, dy = by-ay;
+  const lenSq = dx*dx + dy*dy || 1;
+  let t = ((fx-ax)*dx + (fy-ay)*dy) / lenSq;
+  t = Math.max(0.05, Math.min(0.95, t)); // clamp to keep away from endpoints
+  const splitPt = [ax + t*dx, ay + t*dy];
+
+  // Insert new vertex after index i
+  let newPts;
+  if (j === 0) {
+    // Edge wraps around: insert at end
+    newPts = [...pts, splitPt];
+  } else {
+    newPts = [...pts.slice(0, j), splitPt, ...pts.slice(j)];
+  }
+
+  // Convert to polygon array (general polygon regardless of previous shape)
+  p.corners = newPts;
+  p.labelPos = centerOf(p.corners);
+  // Invalidate lockedSides (indices shift after split)
+  p.lockedSides = {};
+
+  refreshSideEditsFor(p);
+  commitHistory();
+  hideEdgeContextMenu();
+  renderAll();
+
+  showToast(`✂️ বাহু ${toBnLabel(edgeIdx+1)} split হয়েছে — এখন ${toBnLabel(n+1)}টি বাহু`);
+}
+
+// Close context menu on any click elsewhere
+document.addEventListener('click', (e) => {
+  if (!edgeContextMenuEl.contains(e.target)) hideEdgeContextMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideEdgeContextMenu();
+});
+
+document.getElementById('ctxSplitEdge').addEventListener('click', splitEdge);
+
+function showToast(msg){
+  addedToast.textContent = msg;
+  addedToast.classList.add('show');
+  setTimeout(()=>addedToast.classList.remove('show'), 1800);
+}
+
+function showToastLong(msg){
+  addedToast.textContent = msg;
+  addedToast.classList.add('show');
+  setTimeout(()=>addedToast.classList.remove('show'), 6000);
+}
+
+function addNewPlot(){
+  pushHistory();
+  const id = nextId++;
+  // Canvas is 350ft wide x 550ft tall. Place new plots in a grid in the right/bottom margin.
+  const col = (id - 8) % 2;
+  const row = Math.floor((id - 8) / 2);
+  const baseX = 295 + col * 30; // small plots stacked near right edge, will overlap less if dragged
+  const baseY = 500 + row * 60;
+  const corners = {
+    nw:[baseX, baseY], ne:[baseX+45, baseY],
+    se:[baseX+45, baseY+35], sw:[baseX, baseY+35],
+  };
+  const [bg,bd] = COLORS[(id-1) % COLORS.length];
+  const newPlot = { id, label: toBnLabel(id), color:bg, border:bd, locked:false, corners, labelPos: centerOf(corners) };
+  plots.push(newPlot);
+  selectPlot(id);
+  showToast(`✅ নতুন প্লট ${toBnLabel(id)} যোগ হয়েছে`);
+  commitHistory();
+
+  // scroll into view
+  setTimeout(() => {
+    const targetLeft = Math.max(0, baseX*PX_PER_FT*zoom - canvasWrap.clientWidth/2);
+    const targetTop = Math.max(0, baseY*PX_PER_FT*zoom - canvasWrap.clientHeight/2);
+    canvasWrap.scrollTo({ left: targetLeft, top: targetTop, behavior: 'smooth' });
+  }, 60);
+}
+
+// ── Copy / Paste ──
+function copyPlot(id){
+  const p = plots.find(pl => pl.id === id);
+  if (!p) return;
+  // Deep-copy everything except id/label/labelPos, which get reassigned on paste
+  clipboardPlot = JSON.parse(JSON.stringify({
+    color: p.color, border: p.border, opacity: getOpacity(p),
+    corners: p.corners, baseLabel: p.label,
+  }));
+  showToast(`📋 প্লট ${p.label} কপি হয়েছে — এখন Ctrl+V বা পেস্ট বাটনে চাপুন`);
+  renderSidebar(); // refresh so the Paste button becomes enabled
+}
+
+function pastePlot(){
+  if (!clipboardPlot) {
+    showToast('⚠️ আগে কোনো প্লট কপি করুন');
+    return;
+  }
+  pushHistory();
+  const id = nextId++;
+  // Offset the pasted copy slightly so it doesn't sit exactly on top of the original
+  const OFFSET_FT = 20;
+  const newCorners = translateCorners(clipboardPlot.corners, OFFSET_FT, OFFSET_FT);
+  const newPlot = {
+    id,
+    label: toBnLabel(id),
+    color: clipboardPlot.color,
+    border: clipboardPlot.border,
+    opacity: clipboardPlot.opacity,
+    locked: false,
+    corners: newCorners,
+    labelPos: centerOf(newCorners),
+  };
+  plots.push(newPlot);
+  selectPlot(id);
+  showToast(`📥 প্লট ${clipboardPlot.baseLabel} থেকে নতুন প্লট ${toBnLabel(id)} পেস্ট হয়েছে`);
+  commitHistory();
+
+  setTimeout(() => {
+    const [cx, cy] = newPlot.labelPos;
+    const targetLeft = Math.max(0, cx*PX_PER_FT*zoom - canvasWrap.clientWidth/2);
+    const targetTop = Math.max(0, cy*PX_PER_FT*zoom - canvasWrap.clientHeight/2);
+    canvasWrap.scrollTo({ left: targetLeft, top: targetTop, behavior: 'smooth' });
+  }, 60);
+}
+
+// ── Drag whole plot ──
+let dragState = null;
+function toSVGCoord(e){
+  const pt = svg.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+function startDragPlot(e, id){
+  const p0 = plots.find(pl=>pl.id===id);
+  if (p0 && p0.locked) { selectPlot(id); return; } // locked: select only, no drag
+  e.preventDefault(); e.stopPropagation();
+  selectPlot(id);
+  pushHistory();
+  const start = toSVGCoord(e);
+  const p = plots.find(pl=>pl.id===id);
+  const orig = JSON.parse(JSON.stringify(p.corners));
+  dragState = { type:'move', id, start, orig };
+  window.addEventListener('mousemove', onDragMove);
+  window.addEventListener('mouseup', onDragUp);
+}
+function startDragCorner(e, plotId, cornerKey){
+  const p0 = plots.find(pl=>pl.id===plotId);
+  if (p0 && p0.locked) return; // locked: no resize
+  e.preventDefault(); e.stopPropagation();
+  selectPlot(plotId);
+  pushHistory();
+  // Capture original side lengths so locked sides can be restored during drag
+  const origSideLengths = isQuad(p0.corners)
+    ? getSides(p0.corners)
+    : (Array.isArray(p0.corners) ? getSides(p0.corners) : null);
+  dragState = { type:'corner', id:plotId, cornerKey, origSideLengths };
+  window.addEventListener('mousemove', onDragMove);
+  window.addEventListener('mouseup', onDragUp);
+}
+function onDragMove(e){
+  if (!dragState) return;
+  const cur = toSVGCoord(e);
+  const p = plots.find(pl=>pl.id===dragState.id);
+  if (!p || p.locked) return;
+
+  if (dragState.type === 'move') {
+    let dx = (cur.x - dragState.start.x)/PX_PER_FT;
+    let dy = (cur.y - dragState.start.y)/PX_PER_FT;
+    // Magnetic snap to nearby plots' edges/corners
+    const snapResult = computeSnapOffset(dragState.id, dragState.orig, dx, dy);
+    dx = snapResult.dx; dy = snapResult.dy;
+    p.corners = translateCorners(dragState.orig, dx, dy);
+    p.labelPos = centerOf(p.corners);
+    dragState.snapping = snapResult.snapped;
+  } else if (dragState.type === 'corner') {
+    const fx = cur.x/PX_PER_FT, fy = cur.y/PX_PER_FT;
+    if (isQuad(p.corners)) {
+      p.corners[dragState.cornerKey] = [fx, fy];
+      // Re-enforce locked sides: each locked side gets restored to its original length
+      // by calling updateSide with the original value (captured at drag start)
+      if (p.lockedSides && dragState.origSideLengths) {
+        const cornerToSides = { nw:['N','W'], ne:['N','E'], se:['E','S'], sw:['S','W'] };
+        const affectedSides = cornerToSides[dragState.cornerKey] || [];
+        affectedSides.forEach(side => {
+          if (p.lockedSides[side]) {
+            p.corners = updateSide(p.corners, side, dragState.origSideLengths[side]);
+          }
+        });
+      }
+    } else {
+      // General polygon: vertex at cornerKey index is being dragged
+      const vidx = dragState.cornerKey;
+      const n = p.corners.length;
+      let newCorners = p.corners.map((pt, idx) => idx === vidx ? [fx, fy] : pt);
+      // Re-enforce any locked sides after the move
+      // A vertex at index `vidx` affects edges (vidx-1 → vidx) and (vidx → vidx+1)
+      if (p.lockedSides) {
+        const prevEdge = (vidx - 1 + n) % n; // edge index whose END is vidx
+        const nextEdge = vidx;                 // edge index whose START is vidx
+        if (p.lockedSides[prevEdge] && dragState.origSideLengths) {
+          // Restore length of edge prevEdge (from prevEdge to vidx)
+          const origLen = dragState.origSideLengths[prevEdge];
+          const [ax, ay] = newCorners[prevEdge];
+          const [bx, by] = newCorners[vidx];
+          const dx2 = bx-ax, dy2 = by-ay;
+          const oldL = Math.sqrt(dx2*dx2+dy2*dy2)||1;
+          newCorners[vidx] = [ax + dx2/oldL*origLen, ay + dy2/oldL*origLen];
+        }
+        if (p.lockedSides[nextEdge] && dragState.origSideLengths) {
+          // Restore length of edge nextEdge (from vidx to vidx+1)
+          const origLen = dragState.origSideLengths[nextEdge];
+          const [ax, ay] = newCorners[vidx];
+          const nextIdx = (vidx+1) % n;
+          const [bx, by] = newCorners[nextIdx];
+          const dx2 = bx-ax, dy2 = by-ay;
+          const oldL = Math.sqrt(dx2*dx2+dy2*dy2)||1;
+          newCorners[nextIdx] = [ax + dx2/oldL*origLen, ay + dy2/oldL*origLen];
+        }
+      }
+      p.corners = newCorners;
+    }
+    p.labelPos = centerOf(p.corners);
+  }
+  renderAll();
+}
+function onDragUp(){
+  if (dragState) {
+    const p = plots.find(pl=>pl.id===dragState.id);
+    if (p) {
+      refreshSideEditsFor(p);
+      renderSidebar();
+    }
+    commitHistory();
+  }
+  dragState = null;
+  window.removeEventListener('mousemove', onDragMove);
+  window.removeEventListener('mouseup', onDragUp);
+}
+
+
+// ── Save / Load ──
+function saveToFile(){
+  saveSheetState(); // flush current flat vars into the active sheet object
+  const data = JSON.stringify({
+    sheets: sheets.map(s => ({
+      name: s.name,
+      plots: s.plots,
+      nextId: s.nextId,
+      gpsAnchor: s.gpsAnchor || null,
+      mouzaImage: s.mouzaImage || null,
+      mouzaScale: s.mouzaScale || null,
+    })),
+    activeSheetIdx,
+    savedAt: new Date().toISOString(),
+    // Legacy single-sheet field for backward compat when loading old saves
+    plots, nextId, gpsAnchor,
+  }, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'jomir-plot-design.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  statusMsgEl.textContent = '✅ ফাইল সেভ হয়েছে';
+  setTimeout(()=>statusMsgEl.textContent='', 2500);
+}
+
+function loadFromFile(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (data.sheets) {
+        // New multi-sheet format
+        sheets = data.sheets.map(s => {
+          const sh = makeSheet(s.name, s.plots);
+          sh.nextId = s.nextId || sh.nextId;
+          sh.gpsAnchor = s.gpsAnchor || null;
+          sh.mouzaImage = s.mouzaImage || null;
+          sh.mouzaScale = s.mouzaScale || null;
+          sh.plots = s.plots;
+          return sh;
+        });
+        activeSheetIdx = Math.min(data.activeSheetIdx || 0, sheets.length - 1);
+      } else if (data.plots) {
+        // Legacy single-sheet format
+        const sh = makeSheet('Sheet ১', data.plots);
+        sh.nextId = data.nextId || sh.nextId;
+        sh.gpsAnchor = data.gpsAnchor || null;
+        sh.plots = data.plots;
+        sheets = [sh];
+        activeSheetIdx = 0;
+      } else { throw new Error('invalid'); }
+
+      undoStack = []; redoStack = []; pendingSnapshot = null;
+      loadSheetState(activeSheetIdx);
+      renderAll();
+      renderSheetTabs();
+      statusMsgEl.textContent = '✅ ফাইল লোড হয়েছে';
+      setTimeout(()=>statusMsgEl.textContent='', 2500);
+    } catch(err) {
+      statusMsgEl.textContent = '❌ ফাইল পড়তে সমস্যা হয়েছে';
+      setTimeout(()=>statusMsgEl.textContent='', 2500);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ── Export PNG ──
+function exportAsPNG(){
+  const wasSelected = selected;
+  selected = null;
+  renderAll();
+
+  setTimeout(() => {
+    try {
+      const { w, h } = getCanvasExtent();
+      const svgClone = svg.cloneNode(true);
+      svgClone.setAttribute('width', w);
+      svgClone.setAttribute('height', h);
+      svgClone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svgClone.querySelectorAll('.corner-handle').forEach(el => el.remove());
+
+      // Embed font-family directly on the SVG root so cloned/standalone SVG renders Bengali text correctly
+      const styleTag = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      styleTag.textContent = `
+        text { font-family: 'Hind Siliguri','Noto Sans Bengali','Segoe UI',Arial,sans-serif; }
+      `;
+      svgClone.insertBefore(styleTag, svgClone.firstChild);
+
+      const svgData = new XMLSerializer().serializeToString(svgClone);
+      // Base64-encode (instead of plain Blob URL) — avoids canvas tainting issues in some browsers
+      const svgBase64 = 'data:image/svg+xml;charset=utf-8;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const scaleFactor = 2;
+          canvas.width = w*scaleFactor; canvas.height = h*scaleFactor;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0,0,canvas.width,canvas.height);
+          ctx.scale(scaleFactor, scaleFactor);
+          ctx.drawImage(img,0,0);
+
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              statusMsgEl.textContent = '❌ ছবি তৈরি করতে সমস্যা হয়েছে';
+              setTimeout(()=>statusMsgEl.textContent='', 3000);
+              selected = wasSelected;
+              renderAll();
+              return;
+            }
+            const link = document.createElement('a');
+            link.download = 'jomir-plot-map.png';
+            link.href = URL.createObjectURL(blob);
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            statusMsgEl.textContent = '✅ ছবি ডাউনলোড হয়েছে';
+            setTimeout(()=>statusMsgEl.textContent='', 2500);
+            selected = wasSelected;
+            renderAll();
+          }, 'image/png');
+        } catch(err) {
+          console.error('Canvas export error:', err);
+          statusMsgEl.textContent = '❌ ছবি তৈরি করতে সমস্যা হয়েছে: ' + err.message;
+          setTimeout(()=>statusMsgEl.textContent='', 4000);
+          selected = wasSelected;
+          renderAll();
+        }
+      };
+      img.onerror = (err) => {
+        console.error('SVG image load error:', err);
+        statusMsgEl.textContent = '❌ ছবি লোড করতে সমস্যা হয়েছে';
+        setTimeout(()=>statusMsgEl.textContent='', 3000);
+        selected = wasSelected;
+        renderAll();
+      };
+      img.src = svgBase64;
+    } catch(err) {
+      console.error('Export error:', err);
+      statusMsgEl.textContent = '❌ Export সমস্যা: ' + err.message;
+      setTimeout(()=>statusMsgEl.textContent='', 4000);
+      selected = wasSelected;
+      renderAll();
+    }
+  }, 50);
+}
+
+// ============================================================
+// EVENT WIRING
+// ============================================================
+// ============================================================
+// MOUZA MAP WIRING
+// ============================================================
+let mouzaCalibMode = false;
+let mouzaCalibPoints = []; // [{svgX, svgY}, ...]
+let mouzaPanelOpen = false;
+
+const mouzaPanel     = document.getElementById('mouzaPanel');
+const mouzaFileInput = document.getElementById('mouzaFileInput');
+const mouzaCalibStatus = document.getElementById('mouzaCalibStatus');
+const mouzaScaleInfo   = document.getElementById('mouzaScaleInfo');
+const mouzaImageInfo   = document.getElementById('mouzaImageInfo');
+const mouzaOpacitySlider = document.getElementById('mouzaOpacity');
+const mouzaOpacityVal    = document.getElementById('mouzaOpacityVal');
+const mouzaOffsetXEl = null;
+const mouzaOffsetYEl = null;
+
+function openMouzaPanel(){
+  mouzaPanel.style.display = 'block';
+  mouzaPanelOpen = true;
+  updateMouzaPanelUI();
+}
+function closeMouzaPanel(){
+  mouzaPanel.style.display = 'none';
+  mouzaPanelOpen = false;
+  mouzaCalibMode = false;
+  mouzaCalibPoints = [];
+  renderMouza();
+}
+function updateMouzaPanelUI(){
+  if (mouzaImage) {
+    mouzaImageInfo.textContent = `✅ ${mouzaImage.widthPx}×${mouzaImage.heightPx} px`;
+    mouzaOpacitySlider.value = mouzaImage.opacity || 60;
+    mouzaOpacityVal.textContent = toBnLabel(mouzaImage.opacity || 60) + '%';
+    const sizeSlider = document.getElementById('mouzaSizeSlider');
+    const sizeVal    = document.getElementById('mouzaSizeVal');
+    if (sizeSlider) { sizeSlider.value = mouzaImage.imageScale || 100; }
+    if (sizeVal)    { sizeVal.textContent = toBnLabel(mouzaImage.imageScale || 100) + '%'; }
+  } else {
+    mouzaImageInfo.textContent = 'কোনো ছবি নেই';
+  }
+  if (mouzaScale) {
+    mouzaScaleInfo.textContent = `✅ স্কেল: ১ ফুট = ${mouzaScale.pixelsPerFt.toFixed(2)} পিক্সেল`;
+  } else {
+    mouzaScaleInfo.textContent = '';
+  }
+}
+
+document.getElementById('mouzaBtn').addEventListener('click', () => {
+  if (mouzaPanelOpen) closeMouzaPanel(); else openMouzaPanel();
+});
+document.getElementById('closeMouzaBtn').addEventListener('click', closeMouzaPanel);
+
+document.getElementById('mouzaUploadBtn').addEventListener('click', () => mouzaFileInput.click());
+
+mouzaFileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const dataUrl = ev.target.result;
+    const img = new Image();
+    img.onload = () => {
+      mouzaImage = {
+        dataUrl,
+        widthPx: img.naturalWidth,
+        heightPx: img.naturalHeight,
+        opacity: parseInt(mouzaOpacitySlider.value) || 60,
+        imageScale: 100, // percentage: 100 = original size
+        offsetX: 0, offsetY: 0,
+      };
+      mouzaScale = null; // reset scale when new image uploaded
+      saveSheetState();
+      updateMouzaPanelUI();
+      renderAll();
+      showToast('✅ মৌজা ছবি লোড হয়েছে — এখন স্কেল ক্যালিব্রেট করুন');
+    };
+    img.src = dataUrl;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+mouzaOpacitySlider.addEventListener('input', (e) => {
+  const val = parseInt(e.target.value);
+  mouzaOpacityVal.textContent = toBnLabel(val) + '%';
+  if (mouzaImage) { mouzaImage.opacity = val; renderMouza(); }
+});
+mouzaOpacitySlider.addEventListener('change', () => saveSheetState());
+
+// Image size slider
+document.getElementById('mouzaSizeSlider').addEventListener('input', (e) => {
+  const val = parseInt(e.target.value);
+  document.getElementById('mouzaSizeVal').textContent = toBnLabel(val) + '%';
+  if (mouzaImage) { mouzaImage.imageScale = val; renderMouza(); setSvgSize(); }
+});
+document.getElementById('mouzaSizeSlider').addEventListener('change', () => saveSheetState());
+document.getElementById('mouzaSizeResetBtn').addEventListener('click', () => {
+  if (!mouzaImage) return;
+  mouzaImage.imageScale = 100;
+  document.getElementById('mouzaSizeSlider').value = 100;
+  document.getElementById('mouzaSizeVal').textContent = '১০০%';
+  saveSheetState();
+  renderAll();
+});
+
+document.getElementById('mouzaCalibBtn').addEventListener('click', () => {
+  if (!mouzaImage) { showToastLong('⚠️ আগে একটা মৌজা ছবি আপলোড করুন'); return; }
+  mouzaCalibMode = true;
+  mouzaCalibPoints = [];
+  mouzaCalibStatus.textContent = '👆 ছবিতে প্রথম বিন্দু (A) ক্লিক করুন';
+  renderMouza();
+});
+document.getElementById('mouzaCalibClearBtn').addEventListener('click', () => {
+  mouzaCalibMode = false;
+  mouzaCalibPoints = [];
+  mouzaCalibStatus.textContent = '';
+  renderMouza();
+});
+document.getElementById('mouzaSetScaleBtn').addEventListener('click', () => {
+  if (mouzaCalibPoints.length < 2) {
+    mouzaCalibStatus.textContent = '⚠️ আগে ২টি বিন্দু ক্লিক করুন';
+    return;
+  }
+  const realFt = parseFloat(document.getElementById('mouzaRealDist').value);
+  if (isNaN(realFt) || realFt <= 0) {
+    mouzaCalibStatus.textContent = '⚠️ বৈধ দূরত্ব (ফুট) লিখুন';
+    return;
+  }
+  const [a, b] = mouzaCalibPoints;
+  const svgDist = Math.hypot(b.svgX - a.svgX, b.svgY - a.svgY);
+  // svgDist is in SVG px. We need: how many IMAGE pixels per foot?
+  // If no scale yet, image is shown at defaultScale = (300*PX_PER_FT)/imgWidthPx
+  // displayed SVG px per image px = PX_PER_FT / pixelsPerFt (if scale set)
+  //                                = defaultScale (if not set yet)
+  let pxPerImgPx;
+  if (mouzaScale) {
+    pxPerImgPx = PX_PER_FT / mouzaScale.pixelsPerFt;
+  } else {
+    pxPerImgPx = (300 * PX_PER_FT) / mouzaImage.widthPx;
+  }
+  const imgPixelDist = svgDist / pxPerImgPx;
+  mouzaScale = { pixelsPerFt: imgPixelDist / realFt };
+  mouzaCalibMode = false;
+  mouzaCalibPoints = [];
+  saveSheetState();
+  updateMouzaPanelUI();
+  mouzaCalibStatus.textContent = '✅ স্কেল সেট হয়েছে';
+  renderAll();
+});
+
+document.getElementById('mouzaRemoveBtn').addEventListener('click', () => {
+  if (!confirm('মৌজা ছবি মুছে ফেলবেন?')) return;
+  mouzaImage = null;
+  mouzaScale = null;
+  mouzaCalibMode = false;
+  mouzaCalibPoints = [];
+  saveSheetState();
+  updateMouzaPanelUI();
+  renderAll();
+  showToast('🗑️ মৌজা ছবি মুছে ফেলা হয়েছে');
+});
+
+// Intercept canvas clicks for calibration mode
+canvasWrap.addEventListener('contextmenu', (e) => {
+  // Suppress native context menu on canvas (edges show custom menu via their own handler)
+  e.preventDefault();
+  hideEdgeContextMenu();
+});
+
+canvasWrap.addEventListener('click', (e) => {
+  // Calibration point picking
+  if (mouzaCalibMode && mouzaImage) {
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+    mouzaCalibPoints.push({ svgX: svgPt.x, svgY: svgPt.y });
+    if (mouzaCalibPoints.length === 1) {
+      mouzaCalibStatus.textContent = '👆 দ্বিতীয় বিন্দু (B) ক্লিক করুন';
+    } else if (mouzaCalibPoints.length === 2) {
+      mouzaCalibMode = false;
+      mouzaCalibStatus.textContent = `✅ ২টি বিন্দু সিলেক্ট হয়েছে — এখন বাস্তব দূরত্ব (ফুট) লিখে "সেট" চাপুন`;
+    }
+    renderMouza();
+    return; // don't deselect plot
+  }
+
+  // Normal deselect on canvas bg click
+  if (e.target === canvasWrap || e.target === svg || e.target === bgRect) {
+    deselectAll();
+  }
+});
+
+document.getElementById('gpsExportBtn').addEventListener('click', () => {
+  if (!gpsAnchor) {
+    showToastLong('⚠️ আগে GPS Anchor সেট করুন (নিচের GPS Panel থেকে)');
+    return;
+  }
+  const lines = ['প্লট\tকোণা\tLatitude\tLongitude'];
+  plots.forEach(p => {
+    const pts = shapePoints(p.corners);
+    const quad = isQuad(p.corners);
+    const cornerNames = quad ? ['উ-প (NW)','উ-পূ (NE)','দ-পূ (SE)','দ-প (SW)'] : pts.map((_,i)=>`কোণা ${i+1}`);
+    pts.forEach((pt, i) => {
+      const gps = canvasToGPS(pt[0], pt[1], gpsAnchor);
+      lines.push(`প্লট ${p.label}\t${cornerNames[i]}\t${gps.lat.toFixed(8)}\t${gps.lng.toFixed(8)}`);
+    });
+    lines.push(''); // blank line between plots
+  });
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('📋 সব GPS কোঅর্ডিনেট Clipboard এ কপি হয়েছে (Excel এ paste করা যাবে)');
+  }).catch(() => {
+    statusMsgEl.textContent = '❌ Clipboard access পাওয়া যায়নি';
+    setTimeout(()=>statusMsgEl.textContent='', 3000);
+  });
+});
+
+
+document.getElementById('saveBtn').addEventListener('click', saveToFile);
+document.getElementById('loadBtn').addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', loadFromFile);
+document.getElementById('exportBtn').addEventListener('click', exportAsPNG);
+document.getElementById('addPlotBtn').addEventListener('click', addNewPlot);
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('redoBtn').addEventListener('click', redo);
+document.getElementById('addSheetBtn').addEventListener('click', addSheet);
+
+document.getElementById('setGpsAnchorBtn').addEventListener('click', () => {
+  const latVal = parseFloat(gpsLatEl.value.trim());
+  const lngVal = parseFloat(gpsLngEl.value.trim());
+  const cornerJson = gpsCornerSelectEl.value;
+
+  if (isNaN(latVal) || latVal < -90 || latVal > 90) {
+    gpsAnchorStatusEl.textContent = '❌ সঠিক Latitude দিন (-90 থেকে 90)';
+    gpsAnchorStatusEl.style.color = '#ef4444';
+    return;
+  }
+  if (isNaN(lngVal) || lngVal < -180 || lngVal > 180) {
+    gpsAnchorStatusEl.textContent = '❌ সঠিক Longitude দিন (-180 থেকে 180)';
+    gpsAnchorStatusEl.style.color = '#ef4444';
+    return;
+  }
+  if (!cornerJson) {
+    gpsAnchorStatusEl.textContent = '❌ একটা কোণা বাছাই করুন';
+    gpsAnchorStatusEl.style.color = '#ef4444';
+    return;
+  }
+
+  const corner = JSON.parse(cornerJson);
+  gpsAnchor = { lat: latVal, lng: lngVal, canvasX: corner.x, canvasY: corner.y };
+  gpsAnchorStatusEl.textContent = `✅ GPS Anchor সেট: ${latVal.toFixed(6)}°N, ${lngVal.toFixed(6)}°E`;
+  gpsAnchorStatusEl.style.color = '#34d399';
+  renderAll();
+});
+
+document.getElementById('clearGpsBtn').addEventListener('click', () => {
+  gpsAnchor = null;
+  gpsAnchorStatusEl.textContent = 'GPS মুছে ফেলা হয়েছে';
+  gpsAnchorStatusEl.style.color = '#94a3b8';
+  renderAll();
+});
+
+// Keyboard shortcuts: Ctrl+Z (undo), Ctrl+Y or Ctrl+Shift+Z (redo), Ctrl+C (copy), Ctrl+V (paste)
+window.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return; // don't hijack while typing
+  const ctrlOrCmd = e.ctrlKey || e.metaKey;
+  if (!ctrlOrCmd) return;
+  const key = e.key.toLowerCase();
+  if (key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+  } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+    e.preventDefault();
+    redo();
+  } else if (key === 'c') {
+    if (selected) {
+      e.preventDefault();
+      copyPlot(selected);
+    }
+  } else if (key === 'v') {
+    if (clipboardPlot) {
+      e.preventDefault();
+      pastePlot();
+    }
+  } else if (key === ']') {
+    if (selected) {
+      e.preventDefault();
+      if (e.shiftKey) bringToFront(); else bringForward();
+    }
+  } else if (key === '[') {
+    if (selected) {
+      e.preventDefault();
+      if (e.shiftKey) sendToBack(); else sendBackward();
+    }
+  }
+});
+
+zoomSlider.addEventListener('input', (e) => {
+  zoom = parseFloat(e.target.value);
+  zoomVal.textContent = zoom.toFixed(2);
+  renderAll();
+});
+
+showSidesChk.addEventListener('change', (e) => {
+  showSides = e.target.checked;
+  renderAll();
+});
+
+document.getElementById('showAnglesChk').addEventListener('change', (e) => {
+  showAngles = e.target.checked;
+  renderAll();
+});
+
+// ============================================================
+// INIT
+// ============================================================
+renderAll();
+updateUndoRedoButtons();
+renderSheetTabs();
+</script>
+
+</body>
+</html>
