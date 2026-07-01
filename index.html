@@ -62,11 +62,19 @@
 
   .side-edit-row { margin-bottom:8px; }
   .side-edit-row .lbl { font-size:10px; color:#94a3b8; margin-bottom:2px; }
-  .side-edit-inner { display:flex; gap:4px; }
+  .side-edit-inner { display:flex; gap:4px; align-items:center; }
   .side-edit-inner input {
     flex:1; padding:4px 6px; border-radius:4px; border:1px solid #475569;
-    background:#0f172a; color:#f8fafc; font-size:12px;
+    background:#0f172a; color:#f8fafc; font-size:12px; min-width:0;
   }
+  .inch-arrows { display:flex; flex-direction:column; gap:1px; flex-shrink:0; }
+  .inch-btn {
+    background:#334155; color:#cbd5e1; border:none; border-radius:3px;
+    padding:1px 5px; font-size:9px; cursor:pointer; line-height:1.4;
+    width:20px; text-align:center;
+  }
+  .inch-btn:hover:not(:disabled) { background:#0284c7; color:#fff; }
+  .inch-btn:disabled { opacity:0.35; cursor:not-allowed; }
 
   .color-row { display:flex; gap:5px; flex-wrap:wrap; margin-top:4px; }
   .color-swatch {
@@ -504,6 +512,167 @@ function scaleToDecimal(corners, targetDecimal){
   return corners.map(scalePt);
 }
 
+// Scale to target decimal while keeping locked sides unchanged.
+// Strategy: locked sides have their two corners fixed entirely.
+// Unlocked corners scale from the anchor (centroid of all locked corners).
+function scaleToDecimalWithLocks(corners, targetDecimal, lockedSides) {
+  const ls = lockedSides || {};
+  const lockN=!!ls.N, lockS=!!ls.S, lockE=!!ls.E, lockW=!!ls.W;
+
+  // No locks at all — normal uniform scale
+  if (!lockN && !lockS && !lockE && !lockW) return scaleToDecimal(corners, targetDecimal);
+
+  if (!isQuad(corners)) {
+    // Polygon: uniform scale then restore locked edges
+    const scaled = scaleToDecimal(corners, targetDecimal);
+    const origSides = getSides(corners);
+    let result = scaled.slice();
+    const n = result.length;
+    result.forEach((_, idx) => {
+      if (ls[idx]) {
+        const j = (idx+1)%n;
+        const [ax,ay]=result[idx], [bx,by]=result[j];
+        const dx=bx-ax, dy=by-ay, oldL=Math.sqrt(dx*dx+dy*dy)||1;
+        result[j] = [ax+dx/oldL*origSides[idx], ay+dy/oldL*origSides[idx]];
+      }
+    });
+    return result;
+  }
+
+  const targetSqft = targetDecimal * SQ_FT_PER_DECIMAL;
+  let {nw,ne,se,sw} = corners;
+  nw=[...nw]; ne=[...ne]; se=[...se]; sw=[...sw];
+
+  // A corner is locked if ANY of its two adjacent sides is locked:
+  // nw: N or W locked, ne: N or E locked, se: S or E locked, sw: S or W locked
+  const nwLocked = lockN || lockW;
+  const neLocked = lockN || lockE;
+  const seLocked = lockS || lockE;
+  const swLocked = lockS || lockW;
+
+  if (nwLocked && neLocked && seLocked && swLocked) return corners; // all locked
+
+  // Anchor = centroid of all locked corners
+  const lockedPts = [];
+  if (nwLocked) lockedPts.push(nw);
+  if (neLocked) lockedPts.push(ne);
+  if (seLocked) lockedPts.push(se);
+  if (swLocked) lockedPts.push(sw);
+  const anchorPts = lockedPts.length > 0 ? lockedPts : [nw,ne,se,sw];
+  const ax = anchorPts.reduce((s,p)=>s+p[0],0)/anchorPts.length;
+  const ay = anchorPts.reduce((s,p)=>s+p[1],0)/anchorPts.length;
+
+  function makeCorners(r) {
+    return {
+      nw: nwLocked ? [...nw] : [ax+(nw[0]-ax)*r, ay+(nw[1]-ay)*r],
+      ne: neLocked ? [...ne] : [ax+(ne[0]-ax)*r, ay+(ne[1]-ay)*r],
+      se: seLocked ? [...se] : [ax+(se[0]-ax)*r, ay+(se[1]-ay)*r],
+      sw: swLocked ? [...sw] : [ax+(sw[0]-ax)*r, ay+(sw[1]-ay)*r],
+    };
+  }
+
+  let lo=0.001, hi=200, mid=1;
+  for (let i=0; i<100; i++) {
+    mid=(lo+hi)/2;
+    if (getAreaFt(makeCorners(mid)) < targetSqft) lo=mid; else hi=mid;
+  }
+  return makeCorners(mid);
+}
+
+// Find where the locked vertex should be placed so that the angle at it
+// equals targetDeg, given that prev (upstream) and next (downstream) are known.
+// The locked vertex slides along the ray from prev through its original position.
+function findLockedVertexPos(prev, origCur, next, targetDeg) {
+  const dx = origCur[0]-prev[0], dy = origCur[1]-prev[1];
+  const origLen = Math.sqrt(dx*dx+dy*dy)||1;
+  const ux = dx/origLen, uy = dy/origLen; // unit direction prev→origCur
+  const targetRad = targetDeg * Math.PI / 180;
+
+  // 90° fast path: NE = foot of perpendicular from SE onto ray NW→NE
+  if (Math.abs(targetDeg - 90) < 0.1) {
+    const t = (next[0]-prev[0])*ux + (next[1]-prev[1])*uy;
+    if (t < 0.5) return origCur;
+    return [prev[0]+t*ux, prev[1]+t*uy];
+  }
+
+  // General: solve quadratic sin²θ·t² - 2A·sin²θ·t - (cos²θ·|w|² - A²) = 0
+  // where w = next-prev, A = u·w
+  const wx = next[0]-prev[0], wy = next[1]-prev[1];
+  const A = ux*wx + uy*wy;
+  const B = wx*wx + wy*wy;
+  const sinT = Math.sin(targetRad), cosT = Math.cos(targetRad);
+  const sin2 = sinT*sinT, cos2 = cosT*cosT;
+  const qa = sin2, qb = -2*A*sin2, qc = -(cos2*B - A*A);
+  const disc = qb*qb - 4*qa*qc;
+  if (disc < 0 || qa < 1e-10) return origCur;
+
+  const t1 = (-qb + Math.sqrt(disc))/(2*qa);
+  const t2 = (-qb - Math.sqrt(disc))/(2*qa);
+  const candidates = [t1, t2].filter(t => t > 0.5);
+  if (candidates.length === 0) return origCur;
+
+  // Pick the candidate closest to original length
+  const t = candidates.reduce((a,b) => Math.abs(a-origLen) < Math.abs(b-origLen) ? a : b);
+  const ne = [prev[0]+t*ux, prev[1]+t*uy];
+
+  // Verify actual angle matches (not the supplement)
+  const ax=prev[0]-ne[0], ay=prev[1]-ne[1];
+  const bx=next[0]-ne[0], by=next[1]-ne[1];
+  const la=Math.sqrt(ax*ax+ay*ay)||1, lb=Math.sqrt(bx*bx+by*by)||1;
+  const actualDeg = Math.acos(Math.max(-1,Math.min(1,(ax*bx+ay*by)/(la*lb))))*180/Math.PI;
+
+  if (Math.abs(actualDeg - targetDeg) > 3 && candidates.length > 1) {
+    const t2c = candidates[1];
+    return [prev[0]+t2c*ux, prev[1]+t2c*uy];
+  }
+  return ne;
+}
+
+// After any shape change, ensure locked angle vertices maintain their target angle.
+// For each locked vertex: the UPSTREAM neighbour (prev) is treated as fixed anchor,
+// and we reposition the locked vertex along the prev→cur ray to restore the angle.
+function enforceAngleLocks(plot, origCorners) {
+  if (!plot.lockedAngles) return;
+  const lockedVerts = Object.keys(plot.lockedAngles)
+    .filter(k => plot.lockedAngles[k]).map(Number);
+  if (lockedVerts.length === 0) return;
+
+  const origPts = shapePoints(origCorners);
+  const pts = shapePoints(plot.corners).map(p => [...p]);
+  const n = pts.length;
+  let changed = false;
+
+  lockedVerts.forEach(vi => {
+    // Compute original angle at this vertex
+    const prevO = origPts[(vi-1+n)%n], curO = origPts[vi], nextO = origPts[(vi+1)%n];
+    const ax=prevO[0]-curO[0], ay=prevO[1]-curO[1];
+    const bx=nextO[0]-curO[0], by=nextO[1]-curO[1];
+    const la=Math.sqrt(ax*ax+ay*ay)||1, lb=Math.sqrt(bx*bx+by*by)||1;
+    const targetDeg = Math.acos(Math.max(-1,Math.min(1,(ax*bx+ay*by)/(la*lb))))*180/Math.PI;
+
+    // Current prev and next (next may have moved — that's what we're fixing)
+    const prevIdx = (vi-1+n)%n;
+    const nextIdx = (vi+1)%n;
+    const prev = pts[prevIdx]; // upstream anchor (assumed fixed)
+    const next = pts[nextIdx]; // downstream (may have moved)
+
+    // Find new position for locked vertex
+    const newPos = findLockedVertexPos(prev, origPts[vi], next, targetDeg);
+    pts[vi] = newPos;
+    changed = true;
+  });
+
+  if (!changed) return;
+
+  if (isQuad(plot.corners)) {
+    const keys = ['nw','ne','se','sw'];
+    pts.forEach((pt, i) => { if (keys[i]) plot.corners[keys[i]] = pt; });
+  } else {
+    plot.corners = pts;
+  }
+}
+
+
 // Rotate shape by angle (degrees) around its center. Works for both quads and polygons.
 function rotateCorners(corners, angleDeg){
   const [cx, cy] = centerOf(corners);
@@ -534,10 +703,11 @@ function translateCorners(corners, dx, dy){
   return corners.map(t);
 }
 
-// Magnetic snap: while dragging plot `id` by translation (dx,dy) from origCorners,
-// check all OTHER plots' points; if any point of the moving plot comes within
-// SNAP_THRESHOLD feet of any corner/edge-midpoint of another plot, snap dx/dy to align exactly.
-const SNAP_THRESHOLD = 8; // feet
+// Magnetic snap: increased threshold, corner-to-corner priority, edge-to-edge alignment.
+const SNAP_THRESHOLD = 20;      // feet — increased from 8 to 20 for easier alignment
+const SNAP_CORNER_PRI = 12;     // feet — within this distance, corners snap first (exact point)
+const SNAP_EDGE_THRESHOLD = 10; // feet — edge-midpoint-to-edge-midpoint snapping
+
 function getSnapPoints(corners){
   const pts = shapePoints(corners);
   const n = pts.length;
@@ -546,27 +716,51 @@ function getSnapPoints(corners){
     const a=pts[i], b=pts[(i+1)%n];
     mids.push([(a[0]+b[0])/2, (a[1]+b[1])/2]);
   }
-  return [...pts, ...mids];
+  return { corners: pts, mids, all: [...pts, ...mids] };
 }
+
 function computeSnapOffset(movingId, origCorners, dx, dy){
   const movedPreview = translateCorners(origCorners, dx, dy);
-  const movingPts = getSnapPoints(movedPreview);
+  const movingSnap = getSnapPoints(movedPreview);
   let bestDx = dx, bestDy = dy;
   let snappedX = false, snappedY = false;
+  let bestDistX = SNAP_THRESHOLD, bestDistY = SNAP_THRESHOLD;
 
   plots.forEach(other => {
     if (other.id === movingId) return;
-    const otherPts = getSnapPoints(other.corners);
-    movingPts.forEach(mp => {
-      otherPts.forEach(op => {
+    const otherSnap = getSnapPoints(other.corners);
+
+    // Pass 1: corner-to-corner (highest priority — exact point snap)
+    movingSnap.corners.forEach(mp => {
+      otherSnap.corners.forEach(op => {
         const ddx = op[0]-mp[0], ddy = op[1]-mp[1];
-        if (!snappedX && Math.abs(ddx) < SNAP_THRESHOLD && Math.abs(ddy) < SNAP_THRESHOLD*1.5) {
+        const dist = Math.sqrt(ddx*ddx+ddy*ddy);
+        if (dist < SNAP_CORNER_PRI) {
+          // Snap BOTH X and Y simultaneously to exactly align corners
+          bestDx = dx + ddx;
+          bestDy = dy + ddy;
+          snappedX = snappedY = true;
+          bestDistX = bestDistY = dist;
+          return;
+        }
+      });
+    });
+    if (snappedX && snappedY) return; // already snapped, skip further checks
+
+    // Pass 2: corner-to-corner or midpoint-to-midpoint (independent X/Y)
+    movingSnap.all.forEach(mp => {
+      otherSnap.all.forEach(op => {
+        const ddx = op[0]-mp[0], ddy = op[1]-mp[1];
+        const absDdx = Math.abs(ddx), absDdy = Math.abs(ddy);
+        if (!snappedX && absDdx < SNAP_THRESHOLD && absDdx < bestDistX && absDdy < SNAP_THRESHOLD*2) {
           bestDx = dx + ddx;
           snappedX = true;
+          bestDistX = absDdx;
         }
-        if (!snappedY && Math.abs(ddy) < SNAP_THRESHOLD && Math.abs(ddx) < SNAP_THRESHOLD*1.5) {
+        if (!snappedY && absDdy < SNAP_THRESHOLD && absDdy < bestDistY && absDdx < SNAP_THRESHOLD*2) {
           bestDy = dy + ddy;
           snappedY = true;
+          bestDistY = absDdy;
         }
       });
     });
@@ -1218,101 +1412,135 @@ function renderPlots(){
       }
     }
 
-    if (showAngles) {
-      const n = pts.length;
-      for (let vi = 0; vi < n; vi++) {
-        const prev = pts[(vi - 1 + n) % n];
-        const cur  = pts[vi];
-        const next = pts[(vi + 1) % n];
+    // (angle arcs rendered below, outside innerG, after g.appendChild(innerG))
 
-        // Vectors from cur to prev and cur to next
-        const ax = prev[0] - cur[0], ay = prev[1] - cur[1];
-        const bx = next[0] - cur[0], by = next[1] - cur[1];
-        const lenA = Math.sqrt(ax*ax + ay*ay) || 1;
-        const lenB = Math.sqrt(bx*bx + by*by) || 1;
-
-        // Interior angle in degrees via dot product
-        const dot = (ax*bx + ay*by) / (lenA * lenB);
-        const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
-
-        // Draw arc indicating the angle
-        const R = 18; // arc radius in SVG pixels
-        const startAngle = Math.atan2(ay, ax);
-        const endAngle   = Math.atan2(by, bx);
-        const arcX = cur[0] * PX_PER_FT, arcY = cur[1] * PX_PER_FT;
-
-        // SVG arc path: M startPt A R R 0 largeArc sweep endPt
-        const sx = arcX + R * Math.cos(startAngle);
-        const sy = arcY + R * Math.sin(startAngle);
-        const ex = arcX + R * Math.cos(endAngle);
-        const ey = arcY + R * Math.sin(endAngle);
-
-        // Determine sweep: use the interior (smaller) arc
-        // Cross product to know winding
-        const cross = ax * by - ay * bx;
-        const sweep = cross < 0 ? 1 : 0; // 1 = clockwise in SVG (y-down)
-        const large = angleDeg > 180 ? 1 : 0;
-
-        const arc = svgEl('path', {
-          d: `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 ${large} ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`,
-          fill: 'none',
-          stroke: isSel ? '#f59e0b' : '#e879f9',
-          'stroke-width': '1.2',
-          style: 'pointer-events:none;'
-        });
-        innerG.appendChild(arc);
-
-        // Angle label — placed along the bisector direction from vertex, at radius R+10
-        const bisectAngle = (startAngle + endAngle) / 2 + (cross < 0 ? 0 : Math.PI);
-        const lblR = R + 11;
-        const lblX = arcX + lblR * Math.cos(bisectAngle);
-        const lblY = arcY + lblR * Math.sin(bisectAngle);
-
-        // Background pill for readability
-        const bgRect = svgEl('rect', {
-          x: (lblX - 14).toFixed(1), y: (lblY - 6).toFixed(1),
-          width: 28, height: 12, rx: 3,
-          fill: 'white', 'fill-opacity': 0.82,
-          style: 'pointer-events:none;'
-        });
-        innerG.appendChild(bgRect);
-
-        const angleTxt = svgEl('text', {
-          x: lblX.toFixed(2), y: lblY.toFixed(2),
-          'text-anchor': 'middle', 'dominant-baseline': 'middle',
-          'font-size': 8, fill: isSel ? '#92400e' : '#7e22ce',
-          'font-weight': 700,
-          style: 'pointer-events:none;user-select:none;'
-        });
-        angleTxt.textContent = angleDeg.toFixed(1) + '°';
-        innerG.appendChild(angleTxt);
-      }
-    }
 
     innerG.addEventListener('mousedown', (e) => startDragPlot(e, p.id));
     innerG.addEventListener('click', (e) => { e.stopPropagation(); selectPlot(p.id); });
     g.appendChild(innerG);
 
+    // Angle arcs — appended to g (not innerG) so their click events
+    // are NOT blocked by innerG's stopPropagation click handler
+    if (showAngles) {
+      const n2 = pts.length;
+      for (let vi = 0; vi < n2; vi++) {
+        const prev = pts[(vi - 1 + n2) % n2];
+        const cur  = pts[vi];
+        const next = pts[(vi + 1) % n2];
+
+        const ax = prev[0] - cur[0], ay = prev[1] - cur[1];
+        const bx = next[0] - cur[0], by = next[1] - cur[1];
+        const lenA = Math.sqrt(ax*ax + ay*ay) || 1;
+        const lenB = Math.sqrt(bx*bx + by*by) || 1;
+        const dot = (ax*bx + ay*by) / (lenA * lenB);
+        const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+
+        const cross = ax * by - ay * bx;
+        const angLocked = p.lockedAngles && p.lockedAngles[vi];
+
+        const R = 18;
+        const startAngle = Math.atan2(ay, ax);
+        const endAngle   = Math.atan2(by, bx);
+        const arcX = cur[0] * PX_PER_FT, arcY = cur[1] * PX_PER_FT;
+        const sx = arcX + R * Math.cos(startAngle);
+        const sy = arcY + R * Math.sin(startAngle);
+        const ex = arcX + R * Math.cos(endAngle);
+        const ey = arcY + R * Math.sin(endAngle);
+        const sweep = cross < 0 ? 1 : 0;
+        const large = angleDeg > 180 ? 1 : 0;
+        const arcPath = `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 ${large} ${sweep} ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+        const arcColor = angLocked ? '#ef4444' : (isSel ? '#f59e0b' : '#e879f9');
+
+        const arcGrp = svgEl('g', { style: 'cursor:pointer;' });
+
+        // Visible arc
+        const arcVis = svgEl('path', {
+          d: arcPath,
+          fill: angLocked ? 'rgba(239,68,68,0.12)' : 'none',
+          stroke: arcColor,
+          'stroke-width': angLocked ? '2.5' : '1.8',
+          'pointer-events': 'none',
+        });
+        arcGrp.appendChild(arcVis);
+
+        // Invisible thick hit area (visual only, no click - lock done via sidebar)
+        const arcHit = svgEl('path', {
+          d: arcPath,
+          fill: 'none',
+          stroke: 'transparent',
+          'stroke-width': '14',
+          'pointer-events': 'none',
+        });
+        arcGrp.appendChild(arcHit);
+
+        // Label
+        const bisectAngle = (startAngle + endAngle) / 2 + (cross < 0 ? 0 : Math.PI);
+        const lblR = R + 13;
+        const lblX = arcX + lblR * Math.cos(bisectAngle);
+        const lblY = arcY + lblR * Math.sin(bisectAngle);
+        const bgW = angLocked ? 38 : 30;
+        const bgRct = svgEl('rect', {
+          x: (lblX - bgW/2).toFixed(1), y: (lblY - 7).toFixed(1),
+          width: bgW, height: 14, rx: 3,
+          fill: angLocked ? '#fef2f2' : 'white', 'fill-opacity': 0.9,
+          stroke: angLocked ? '#ef4444' : 'none', 'stroke-width': '0.5',
+          'pointer-events': 'none',
+        });
+        arcGrp.appendChild(bgRct);
+
+        const angTxt = svgEl('text', {
+          x: lblX.toFixed(2), y: lblY.toFixed(2),
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': 8,
+          fill: angLocked ? '#dc2626' : (isSel ? '#92400e' : '#7e22ce'),
+          'font-weight': 700,
+          'pointer-events': 'none',
+        });
+        angTxt.textContent = (angLocked ? '🔒' : '') + angleDeg.toFixed(1) + '°';
+        arcGrp.appendChild(angTxt);
+
+        g.appendChild(arcGrp);
+      }
+    }
+
     if (isSel && !isLocked) {
       if (quad) {
+        // Map: which two sides each corner touches
+        const cornerToSides = { nw:['N','W'], ne:['N','E'], se:['E','S'], sw:['S','W'] };
         ['nw','ne','se','sw'].forEach(ck => {
           const [cx,cy] = p.corners[ck];
+          const adjSides = cornerToSides[ck];
+          const cornerSideLocked = p.lockedSides && adjSides.some(s => p.lockedSides[s]);
+          const cornerLocked = cornerSideLocked; // angle-lock no longer disables handle
           const handle = svgEl('circle', {
             class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:7,
-            fill:'#2563eb', stroke:'#ffffff', 'stroke-width':2,
+            fill: cornerLocked ? '#6b7280' : '#2563eb',
+            stroke:'#ffffff', 'stroke-width':2,
+            style: cornerLocked ? 'cursor:not-allowed;' : '',
           });
-          handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, ck));
+          if (!cornerLocked) {
+            handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, ck));
+          }
           g.appendChild(handle);
         });
       } else {
-        // General polygon: one draggable handle per vertex, addressed by index
+        // General polygon: corner at idx touches edges (idx-1) and (idx)
         pts.forEach((pt, idx) => {
+          const n2 = pts.length;
+          const prevEdge = (idx - 1 + n2) % n2;
+          const nextEdge = idx;
+          const sideCornerLocked = p.lockedSides && (p.lockedSides[prevEdge] || p.lockedSides[nextEdge]);
+          const cornerLocked = sideCornerLocked; // angle-lock no longer disables handle
           const [cx,cy] = pt;
           const handle = svgEl('circle', {
             class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:7,
-            fill:'#2563eb', stroke:'#ffffff', 'stroke-width':2,
+            fill: cornerLocked ? '#6b7280' : '#2563eb',
+            stroke:'#ffffff', 'stroke-width':2,
+            style: cornerLocked ? 'cursor:not-allowed;' : '',
           });
-          handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, idx));
+          if (!cornerLocked) {
+            handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, idx));
+          }
           g.appendChild(handle);
         });
       }
@@ -1429,6 +1657,8 @@ function renderSidebar(){
 
     <div id="sideInputs"></div>
 
+    <div style="border-top:1px solid #334155;padding-top:8px;margin-top:4px;" id="angleInputs"></div>
+
     <div class="field-label" style="margin-top:6px;">🔄 ঘোরান (Rotate)</div>
     <div style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
       <button class="btn" id="rotateLeftBtn" style="background:#0284c7;" ${isLocked?'disabled':''}>↺ ১৫°</button>
@@ -1496,6 +1726,10 @@ function renderSidebar(){
         <div class="lbl">${SIDE_LABELS[side]} — ফুট <span style="color:#64748b;">(${toFeetInches(sides[side])})</span></div>
         <div class="side-edit-inner">
           <input type="text" data-side="${side}" value="${sideEdits[side]}" ${(isLocked||sideLocked)?'disabled':''}>
+          <div class="inch-arrows">
+            <button class="inch-btn" data-step-side="${side}" data-dir="up" ${(isLocked||sideLocked)?'disabled':''}>▲</button>
+            <button class="inch-btn" data-step-side="${side}" data-dir="dn" ${(isLocked||sideLocked)?'disabled':''}>▼</button>
+          </div>
           <button class="btn" data-apply="${side}" style="background:#2563eb;" ${(isLocked||sideLocked)?'disabled':''}>✔</button>
           <button class="btn" data-lockside="${side}" title="${sideLocked?'এই বাহু আনলক করুন':'এই বাহু লক করুন'}"
             style="background:${sideLocked?'#f59e0b':'#334155'};padding:4px 7px;font-size:11px;"
@@ -1516,14 +1750,27 @@ function renderSidebar(){
     sideInputsEl.querySelectorAll('button[data-apply]').forEach(btn => {
       btn.addEventListener('click', () => applySideChange(btn.dataset.apply));
     });
+    sideInputsEl.querySelectorAll('button[data-step-side]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const side = btn.dataset.stepSide;
+        const p = plots.find(pl=>pl.id===selected);
+        if (!p || p.locked || (p.lockedSides && p.lockedSides[side])) return;
+        const cur = parseFloat(toEn(sideEdits[side]||'0')) || getSides(p.corners)[side];
+        const delta = btn.dataset.dir === 'up' ? 1/12 : -1/12;
+        const newVal = Math.max(1/12, cur + delta);
+        sideEdits[side] = newVal.toFixed(4);
+        applySideChange(side);
+      });
+    });
     sideInputsEl.querySelectorAll('button[data-lockside]').forEach(btn => {
       btn.addEventListener('click', () => {
         const side = btn.dataset.lockside;
-        if (!selPlot.lockedSides) selPlot.lockedSides = { N:false, E:false, S:false, W:false };
-        selPlot.lockedSides[side] = !selPlot.lockedSides[side];
-        const locked = selPlot.lockedSides[side];
-        showToast(locked
-          ? `🔒 ${SIDE_LABELS[side]} বাহু লক — এখন drag/resize এ বদলাবে না`
+        const p = plots.find(pl=>pl.id===selected);
+        if (!p) return;
+        if (!p.lockedSides) p.lockedSides = { N:false, E:false, S:false, W:false };
+        p.lockedSides[side] = !p.lockedSides[side];
+        showToast(p.lockedSides[side]
+          ? `🔒 ${SIDE_LABELS[side]} বাহু লক`
           : `🔓 ${SIDE_LABELS[side]} বাহু আনলক`);
         renderAll();
       });
@@ -1541,6 +1788,10 @@ function renderSidebar(){
         <div class="lbl">বাহু ${toBnLabel(idx+1)} <span style="color:#64748b;">(${toFeetInches(len)})</span></div>
         <div class="side-edit-inner">
           <input type="text" data-polyidx="${idx}" value="${sideEdits[idx]}" ${(isLocked||sideLocked)?'disabled':''}>
+          <div class="inch-arrows">
+            <button class="inch-btn" data-step-poly="${idx}" data-dir="up" ${(isLocked||sideLocked)?'disabled':''}>▲</button>
+            <button class="inch-btn" data-step-poly="${idx}" data-dir="dn" ${(isLocked||sideLocked)?'disabled':''}>▼</button>
+          </div>
           <button class="btn" data-polyapply="${idx}" style="background:#2563eb;" ${(isLocked||sideLocked)?'disabled':''}>✔</button>
           <button class="btn" data-polylockside="${idx}" title="${sideLocked?'আনলক করুন':'লক করুন'}"
             style="background:${sideLocked?'#f59e0b':'#334155'};padding:4px 7px;font-size:11px;"
@@ -1561,15 +1812,102 @@ function renderSidebar(){
     sideInputsEl.querySelectorAll('button[data-polyapply]').forEach(btn => {
       btn.addEventListener('click', () => applyPolySideChange(parseInt(btn.dataset.polyapply)));
     });
+    sideInputsEl.querySelectorAll('button[data-step-poly]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.stepPoly);
+        const p = plots.find(pl=>pl.id===selected);
+        if (!p || p.locked || (p.lockedSides && p.lockedSides[idx])) return;
+        const sides = getSides(p.corners);
+        const cur = parseFloat(toEn(String(sideEdits[idx]||'0'))) || sides[idx];
+        const delta = btn.dataset.dir === 'up' ? 1/12 : -1/12;
+        const newVal = Math.max(1/12, cur + delta);
+        sideEdits[idx] = newVal.toFixed(4);
+        applyPolySideChange(idx);
+      });
+    });
     sideInputsEl.querySelectorAll('button[data-polylockside]').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = parseInt(btn.dataset.polylockside);
-        if (!selPlot.lockedSides) selPlot.lockedSides = {};
-        selPlot.lockedSides[idx] = !selPlot.lockedSides[idx];
-        showToast(selPlot.lockedSides[idx]
+        const p = plots.find(pl=>pl.id===selected);
+        if (!p) return;
+        if (!p.lockedSides) p.lockedSides = {};
+        p.lockedSides[idx] = !p.lockedSides[idx];
+        showToast(p.lockedSides[idx]
           ? `🔒 বাহু ${toBnLabel(idx+1)} লক হয়েছে`
           : `🔓 বাহু ${toBnLabel(idx+1)} আনলক হয়েছে`);
         renderAll();
+      });
+    });
+  }
+
+  // ── Angle inputs (always shown, not just when showAngles is on) ──
+  const angleInputsEl = document.getElementById('angleInputs');
+  if (angleInputsEl) {
+    angleInputsEl.innerHTML = '';
+    const pts3 = shapePoints(selPlot.corners);
+    const n3 = pts3.length;
+    const quad3 = isQuad(selPlot.corners);
+    const cornerNames3 = quad3
+      ? ['উ-প (NW)','উ-পূ (NE)','দ-পূ (SE)','দ-প (SW)']
+      : pts3.map((_,i)=>`কোণ ${toBnLabel(i+1)}`);
+
+    const hdr = document.createElement('div');
+    hdr.className = 'field-label';
+    hdr.textContent = '🔺 কোণের মাপ';
+    angleInputsEl.appendChild(hdr);
+
+    pts3.forEach((_, vi) => {
+      const prev3=pts3[(vi-1+n3)%n3], cur3=pts3[vi], next3=pts3[(vi+1)%n3];
+      const ax3=prev3[0]-cur3[0], ay3=prev3[1]-cur3[1];
+      const bx3=next3[0]-cur3[0], by3=next3[1]-cur3[1];
+      const lA3=Math.sqrt(ax3*ax3+ay3*ay3)||1, lB3=Math.sqrt(bx3*bx3+by3*by3)||1;
+      const dot3=(ax3*bx3+ay3*by3)/(lA3*lB3);
+      const angDeg = (Math.acos(Math.max(-1,Math.min(1,dot3)))*180/Math.PI);
+      const angLk = selPlot.lockedAngles && selPlot.lockedAngles[vi];
+
+      const row = document.createElement('div');
+      row.className = 'side-edit-row';
+      row.innerHTML = `
+        <div class="lbl" style="color:${angLk?'#ef4444':''};">${cornerNames3[vi]}</div>
+        <div class="side-edit-inner">
+          <input type="text" data-angidx="${vi}" value="${angDeg.toFixed(1)}" readonly
+            style="width:52px;flex:none;text-align:right;color:${angLk?'#ef4444':'#f8fafc'};background:${angLk?'#1f0000':'#0f172a'};">
+          <span style="font-size:10px;color:#94a3b8;padding:0 2px;">°</span>
+          <div class="inch-arrows">
+            <button class="inch-btn" data-angstep="${vi}" data-dir="up" ${(isLocked||angLk)?'disabled':''}>▲</button>
+            <button class="inch-btn" data-angstep="${vi}" data-dir="dn" ${(isLocked||angLk)?'disabled':''}>▼</button>
+          </div>
+          <button class="btn" data-anglock="${vi}"
+            style="background:${angLk?'#ef4444':'#334155'};padding:4px 7px;font-size:11px;"
+            ${isLocked?'disabled':''}>${angLk?'🔒':'🔓'}</button>
+        </div>
+      `;
+      angleInputsEl.appendChild(row);
+    });
+
+    // Wire lock buttons
+    angleInputsEl.querySelectorAll('button[data-anglock]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const vi2 = parseInt(btn.dataset.anglock);
+        const p = plots.find(pl=>pl.id===selected);
+        if (!p) return;
+        if (!p.lockedAngles) p.lockedAngles = {};
+        p.lockedAngles[vi2] = !p.lockedAngles[vi2];
+        showToast(p.lockedAngles[vi2]
+          ? `🔒 ${cornerNames3[vi2]} লক হয়েছে`
+          : `🔓 ${cornerNames3[vi2]} আনলক হয়েছে`);
+        renderAll();
+      });
+    });
+
+    // Wire ▲▼ step buttons (1° at a time via rotation of the outgoing edge)
+    angleInputsEl.querySelectorAll('button[data-angstep]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const vi2 = parseInt(btn.dataset.angstep);
+        const p = plots.find(pl=>pl.id===selected);
+        if (!p) return;
+        const delta = btn.dataset.dir === 'up' ? 1 : -1;
+        adjustAngleAtVertex(p, vi2, delta);
       });
     });
   }
@@ -1816,7 +2154,9 @@ function applySideChange(side){
   const val = parseFloat(toEn(sideEdits[side]));
   if (isNaN(val) || val <= 0) return;
   pushHistory();
+  const origCorners = JSON.parse(JSON.stringify(p.corners));
   p.corners = updateSide(p.corners, side, val);
+  enforceAngleLocks(p, origCorners);
   p.labelPos = centerOf(p.corners);
   refreshSideEditsFor(p);
   commitHistory();
@@ -1846,9 +2186,10 @@ function applyPolySideChange(edgeIdx){
   const ratio = val / oldLen;
   pts[j] = [ax + dx*ratio, ay + dy*ratio];
   pushHistory();
+  const origCorners2 = JSON.parse(JSON.stringify(p.corners));
   p.corners = pts;
+  enforceAngleLocks(p, origCorners2);
   p.labelPos = centerOf(p.corners);
-  // Refresh sideEdits for the updated polygon
   const newSides = getSides(p.corners);
   newSides.forEach((len, idx) => { sideEdits[idx] = String(len.toFixed(2)); });
   commitHistory();
@@ -1991,6 +2332,38 @@ function refreshSideEditsFor(plot){
   }
 }
 
+// Adjust the interior angle at vertex vi by deltaDeg degrees,
+// by rotating the NEXT vertex around the current vertex.
+function adjustAngleAtVertex(plot, vi, deltaDeg) {
+  if (!plot || plot.locked) return;
+  const pts = shapePoints(plot.corners).map(p => [...p]);
+  const n = pts.length;
+  const cur  = pts[vi];
+  const nextIdx = (vi+1)%n;
+  const next = pts[nextIdx];
+
+  // Rotate next around cur by deltaDeg
+  const rad = deltaDeg * Math.PI / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const dx = next[0]-cur[0], dy = next[1]-cur[1];
+  pts[nextIdx] = [
+    cur[0] + dx*cos - dy*sin,
+    cur[1] + dx*sin + dy*cos,
+  ];
+
+  pushHistory();
+  if (isQuad(plot.corners)) {
+    const keys = ['nw','ne','se','sw'];
+    pts.forEach((pt, i) => { if (keys[i]) plot.corners[keys[i]] = pt; });
+  } else {
+    plot.corners = pts;
+  }
+  plot.labelPos = centerOf(plot.corners);
+  refreshSideEditsFor(plot);
+  commitHistory();
+  renderAll();
+}
+
 function applyDecimalChange(rawVal){
   if (!selected) return;
   const p = plots.find(pl=>pl.id===selected);
@@ -1998,7 +2371,9 @@ function applyDecimalChange(rawVal){
   const val = parseFloat(toEn(rawVal));
   if (isNaN(val) || val <= 0) return;
   pushHistory();
-  p.corners = scaleToDecimal(p.corners, val);
+  const origC = JSON.parse(JSON.stringify(p.corners));
+  p.corners = scaleToDecimalWithLocks(p.corners, val, p.lockedSides || {});
+  enforceAngleLocks(p, origC);
   p.labelPos = centerOf(p.corners);
   refreshSideEditsFor(p);
   commitHistory();
@@ -2162,8 +2537,9 @@ function splitEdge() {
   // Convert to polygon array (general polygon regardless of previous shape)
   p.corners = newPts;
   p.labelPos = centerOf(p.corners);
-  // Invalidate lockedSides (indices shift after split)
+  // Invalidate lockedSides and lockedAngles (indices shift after split)
   p.lockedSides = {};
+  p.lockedAngles = {};
 
   refreshSideEditsFor(p);
   commitHistory();
@@ -2294,11 +2670,13 @@ function startDragCorner(e, plotId, cornerKey){
   e.preventDefault(); e.stopPropagation();
   selectPlot(plotId);
   pushHistory();
-  // Capture original side lengths so locked sides can be restored during drag
+  // Capture original side lengths and angles for lock enforcement during drag
   const origSideLengths = isQuad(p0.corners)
     ? getSides(p0.corners)
     : (Array.isArray(p0.corners) ? getSides(p0.corners) : null);
-  dragState = { type:'corner', id:plotId, cornerKey, origSideLengths };
+
+  const origCorners = JSON.parse(JSON.stringify(p0.corners));
+  dragState = { type:'corner', id:plotId, cornerKey, origSideLengths, origCorners };
   window.addEventListener('mousemove', onDragMove);
   window.addEventListener('mouseup', onDragUp);
 }
@@ -2321,8 +2699,7 @@ function onDragMove(e){
     const fx = cur.x/PX_PER_FT, fy = cur.y/PX_PER_FT;
     if (isQuad(p.corners)) {
       p.corners[dragState.cornerKey] = [fx, fy];
-      // Re-enforce locked sides: each locked side gets restored to its original length
-      // by calling updateSide with the original value (captured at drag start)
+      // Re-enforce locked sides
       if (p.lockedSides && dragState.origSideLengths) {
         const cornerToSides = { nw:['N','W'], ne:['N','E'], se:['E','S'], sw:['S','W'] };
         const affectedSides = cornerToSides[dragState.cornerKey] || [];
@@ -2332,18 +2709,17 @@ function onDragMove(e){
           }
         });
       }
+      // Re-enforce locked angles for quad (corner handles disabled so no enforcement needed here)
     } else {
       // General polygon: vertex at cornerKey index is being dragged
       const vidx = dragState.cornerKey;
       const n = p.corners.length;
       let newCorners = p.corners.map((pt, idx) => idx === vidx ? [fx, fy] : pt);
-      // Re-enforce any locked sides after the move
-      // A vertex at index `vidx` affects edges (vidx-1 → vidx) and (vidx → vidx+1)
+      // Re-enforce locked sides
       if (p.lockedSides) {
-        const prevEdge = (vidx - 1 + n) % n; // edge index whose END is vidx
-        const nextEdge = vidx;                 // edge index whose START is vidx
+        const prevEdge = (vidx - 1 + n) % n;
+        const nextEdge = vidx;
         if (p.lockedSides[prevEdge] && dragState.origSideLengths) {
-          // Restore length of edge prevEdge (from prevEdge to vidx)
           const origLen = dragState.origSideLengths[prevEdge];
           const [ax, ay] = newCorners[prevEdge];
           const [bx, by] = newCorners[vidx];
@@ -2352,7 +2728,6 @@ function onDragMove(e){
           newCorners[vidx] = [ax + dx2/oldL*origLen, ay + dy2/oldL*origLen];
         }
         if (p.lockedSides[nextEdge] && dragState.origSideLengths) {
-          // Restore length of edge nextEdge (from vidx to vidx+1)
           const origLen = dragState.origSideLengths[nextEdge];
           const [ax, ay] = newCorners[vidx];
           const nextIdx = (vidx+1) % n;
@@ -2363,6 +2738,10 @@ function onDragMove(e){
         }
       }
       p.corners = newCorners;
+    }
+    // Restore locked angle vertices to their original positions
+    if (dragState.origCorners) {
+      enforceAngleLocks(p, dragState.origCorners);
     }
     p.labelPos = centerOf(p.corners);
   }
