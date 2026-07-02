@@ -1479,16 +1479,19 @@ function renderPlots(){
       }
     }
 
-    // Invisible thick edge hit-areas for right-click split (always present, not just when showSides)
+    // Invisible thick edge hit-areas for right-click split + left-click drag
     {
       const n = pts.length;
       for (let ei = 0; ei < n; ei++) {
         const p1 = pts[ei], p2 = pts[(ei+1)%n];
+        const edgeLocked = p.lockedSides && (isQuad(p.corners)
+          ? p.lockedSides[['N','E','S','W'][ei]]
+          : p.lockedSides[ei]);
         const hitLine = svgEl('line', {
           x1: p1[0]*PX_PER_FT, y1: p1[1]*PX_PER_FT,
           x2: p2[0]*PX_PER_FT, y2: p2[1]*PX_PER_FT,
           stroke: 'transparent', 'stroke-width': 12,
-          style: 'cursor:context-menu;'
+          style: edgeLocked ? 'cursor:not-allowed;' : 'cursor:row-resize;'
         });
         hitLine.dataset.plotId  = p.id;
         hitLine.dataset.edgeIdx = ei;
@@ -1498,6 +1501,15 @@ function renderPlots(){
           selectPlot(p.id);
           showEdgeContextMenu(e, p.id, ei, e.clientX, e.clientY);
         });
+        if (!p.locked && !edgeLocked) {
+          hitLine.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // left click only
+            e.preventDefault();
+            e.stopPropagation();
+            selectPlot(p.id);
+            startDragEdge(e, p.id, ei);
+          });
+        }
         innerG.appendChild(hitLine);
       }
     }
@@ -2857,6 +2869,39 @@ function toSVGCoord(e){
   pt.x = e.clientX; pt.y = e.clientY;
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
+function startDragEdge(e, plotId, edgeIdx){
+  const p = plots.find(pl=>pl.id===plotId);
+  if (!p || p.locked) return;
+  e.preventDefault(); e.stopPropagation();
+  pushHistory();
+
+  const pts = shapePoints(p.corners);
+  const n = pts.length;
+  const p1 = pts[edgeIdx], p2 = pts[(edgeIdx+1)%n];
+
+  // Edge direction unit vector and perpendicular
+  const dx = p2[0]-p1[0], dy = p2[1]-p1[1];
+  const len = Math.sqrt(dx*dx+dy*dy) || 1;
+  // Perpendicular (normal) to the edge
+  const nx = -dy/len, ny = dx/len;
+
+  const startSVG = toSVGCoord(e);
+  const origCorners = JSON.parse(JSON.stringify(p.corners));
+
+  dragState = {
+    type: 'edge',
+    id: plotId,
+    edgeIdx,
+    p1orig: [...p1], p2orig: [...p2],
+    n: [nx, ny],          // perpendicular unit vector
+    start: startSVG,
+    origCorners,
+    origSideLengths: getSides(p.corners),
+  };
+  window.addEventListener('mousemove', onDragMove);
+  window.addEventListener('mouseup', onDragUp);
+}
+
 function startDragPlot(e, id){
   const p0 = plots.find(pl=>pl.id===id);
   if (p0 && p0.locked) { selectPlot(id); return; }
@@ -2900,6 +2945,43 @@ function onDragMove(e){
     p.corners = translateCorners(dragState.orig, dx, dy);
     p.labelPos = centerOf(p.corners);
     dragState.snapping = snapResult.snapped;
+  } else if (dragState.type === 'edge') {
+    // How far has the mouse moved in the perpendicular direction?
+    const dsvgX = (cur.x - dragState.start.x) / PX_PER_FT;
+    const dsvgY = (cur.y - dragState.start.y) / PX_PER_FT;
+    const [nx, ny] = dragState.n;
+    // Project mouse movement onto the perpendicular
+    const perpDelta = dsvgX * nx + dsvgY * ny;
+
+    // Move both endpoints by perpDelta along the perpendicular
+    const newP1 = [dragState.p1orig[0] + nx*perpDelta, dragState.p1orig[1] + ny*perpDelta];
+    const newP2 = [dragState.p2orig[0] + nx*perpDelta, dragState.p2orig[1] + ny*perpDelta];
+
+    const origCorners = dragState.origCorners;
+    const ei = dragState.edgeIdx;
+
+    if (isQuad(p.corners)) {
+      // Quad: update the two corner positions of this edge
+      const keys = ['nw','ne','se','sw'];
+      const n = 4;
+      const i1 = ei, i2 = (ei+1)%n;
+      const newCorners = JSON.parse(JSON.stringify(origCorners));
+      newCorners[keys[i1]] = newP1;
+      newCorners[keys[i2]] = newP2;
+      p.corners = newCorners;
+    } else {
+      // General polygon
+      const n = p.corners.length;
+      const newCorners = p.corners.map((pt,idx) => [...pt]);
+      newCorners[ei] = newP1;
+      newCorners[(ei+1)%n] = newP2;
+      p.corners = newCorners;
+    }
+
+    // Enforce angle locks if any
+    if (dragState.origCorners) enforceAngleLocks(p, dragState.origCorners);
+    p.labelPos = centerOf(p.corners);
+
   } else if (dragState.type === 'corner') {
     const fx = cur.x/PX_PER_FT, fy = cur.y/PX_PER_FT;
     if (isQuad(p.corners)) {
