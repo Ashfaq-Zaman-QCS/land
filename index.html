@@ -258,6 +258,29 @@
 
       <!-- Mouza -->
       <button class="btn" style="background:#b45309;" id="mouzaBtn">🗺️ মৌজা</button>
+
+      <!-- Plot Info -->
+      <button class="btn" style="background:#334155;" id="plotInfoBtn">ℹ️ Plot Info</button>
+    </div>
+
+    <!-- Plot Info Panel -->
+    <div id="plotInfoPanel" style="
+      display:none; position:absolute; top:0; right:0; width:260px; height:100%;
+      background:#1e293b; color:#f8fafc; z-index:101; box-shadow:-4px 0 16px rgba(0,0,0,0.4);
+      overflow-y:auto; padding:16px; box-sizing:border-box;
+    ">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-size:14px;font-weight:700;color:#60a5fa;">ℹ️ Plot Info</div>
+        <button id="closePlotInfoBtn" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
+      </div>
+      <div style="font-size:10px;color:#64748b;margin-bottom:12px;">
+        প্লট সিলেক্ট করে নিচের তথ্য চালু/বন্ধ করুন। চালু তথ্য canvas এ দেখাবে।
+      </div>
+      <div id="plotInfoContent">
+        <div style="font-size:11px;color:#475569;text-align:center;padding:20px 0;">
+          কোনো প্লট সিলেক্ট করুন
+        </div>
+      </div>
     </div>
 
     <!-- Mouza Panel (slides in from right side of canvas) -->
@@ -469,6 +492,23 @@ function isQuad(corners){ return !Array.isArray(corners); }
 // Plot fill opacity (0 = fully transparent, 1 = fully solid). Defaults to 0.9 for
 // plots that don't have this field yet (e.g. loaded from an older saved file).
 function getOpacity(p){ return (typeof p.opacity === 'number') ? p.opacity : 0.9; }
+
+// Per-plot info display settings. Each field defaults to true (visible).
+function getPlotInfo(p) {
+  const d = p.plotInfo || {};
+  return {
+    showName:   d.showName   !== false,
+    showShotok: d.showShotok !== false,
+    showSqft:   d.showSqft   !== false,
+    showLength: d.showLength  !== false,
+    nameSize:   d.nameSize   || 16,
+    shotokSize: d.shotokSize || 10,
+    sqftSize:   d.sqftSize   || 9,
+    lengthSize: d.lengthSize || 8,
+  };
+}
+
+let plotInfoPanelOpen = false;
 
 // ============================================================
 // GPS COORDINATE SYSTEM
@@ -1448,19 +1488,30 @@ function renderPlots(){
     if (isSel) poly.setAttribute('filter','url(#selGlow)');
     innerG.appendChild(poly);
 
-    const t1 = svgEl('text', {x: lx*PX_PER_FT, y: ly*PX_PER_FT-10, 'text-anchor':'middle', 'font-size':16, 'font-weight':700, fill:'#1e293b'});
-    t1.textContent = (isLocked ? '🔒' : '') + p.label;
-    innerG.appendChild(t1);
+    const pi = getPlotInfo(p);
+    let yOff = ly*PX_PER_FT - 10;
 
-    const t2 = svgEl('text', {x: lx*PX_PER_FT, y: ly*PX_PER_FT+8, 'text-anchor':'middle', 'font-size':10, 'font-weight':600, fill:'#1d4ed8'});
-    t2.textContent = toBn(dec) + ' শ';
-    innerG.appendChild(t2);
+    if (pi.showName) {
+      const t1 = svgEl('text', {x: lx*PX_PER_FT, y: yOff, 'text-anchor':'middle', 'font-size':pi.nameSize, 'font-weight':700, fill:'#1e293b'});
+      t1.textContent = (isLocked ? '🔒' : '') + p.label;
+      innerG.appendChild(t1);
+      yOff += pi.nameSize + 2;
+    } else { yOff += 4; }
 
-    const t3 = svgEl('text', {x: lx*PX_PER_FT, y: ly*PX_PER_FT+21, 'text-anchor':'middle', 'font-size':8.5, fill:'#475569'});
-    t3.textContent = toBn(getAreaFt(p.corners)) + ' বর্গফুট';
-    innerG.appendChild(t3);
+    if (pi.showShotok) {
+      const t2 = svgEl('text', {x: lx*PX_PER_FT, y: yOff, 'text-anchor':'middle', 'font-size':pi.shotokSize, 'font-weight':600, fill:'#1d4ed8'});
+      t2.textContent = toBn(dec) + ' শ';
+      innerG.appendChild(t2);
+      yOff += pi.shotokSize + 3;
+    }
 
-    if (showSides) {
+    if (pi.showSqft) {
+      const t3 = svgEl('text', {x: lx*PX_PER_FT, y: yOff, 'text-anchor':'middle', 'font-size':pi.sqftSize, fill:'#475569'});
+      t3.textContent = toBn(getAreaFt(p.corners)) + ' বর্গফুট';
+      innerG.appendChild(t3);
+    }
+
+    if (showSides && pi.showLength) {
       const n = pts.length;
       for (let ei = 0; ei < n; ei++) {
         const p1 = pts[ei], p2 = pts[(ei+1)%n];
@@ -1469,7 +1520,7 @@ function renderPlots(){
         const {x,y,rotate} = edgeLabelProps(p1,p2);
         const txt = svgEl('text', {
           x, y, 'text-anchor':'middle', 'dominant-baseline':'middle',
-          'font-size':8, fill: isSel ? '#1d4ed8' : '#374151',
+          'font-size': pi.lengthSize, fill: isSel ? '#1d4ed8' : '#374151',
           'font-weight': isSel ? 700 : 400,
           transform: `rotate(${rotate},${x},${y})`,
           style: 'pointer-events:none;user-select:none;'
@@ -2291,6 +2342,7 @@ function renderAll(){
   renderSidebar();
   populateGPSCornerSelect();
   renderSheetTabs();
+  if (typeof refreshPlotInfoPanel === 'function') refreshPlotInfoPanel();
 }
 
 // ============================================================
@@ -3252,6 +3304,132 @@ function updateMouzaPanelUI(){
     mouzaScaleInfo.textContent = '';
   }
 }
+
+// ── Plot Info Panel ──────────────────────────────────────────
+const plotInfoPanel = document.getElementById('plotInfoPanel');
+const plotInfoContent = document.getElementById('plotInfoContent');
+
+function openPlotInfoPanel() {
+  plotInfoPanel.style.display = 'block';
+  plotInfoPanelOpen = true;
+  document.getElementById('plotInfoBtn').style.background = '#0284c7';
+  refreshPlotInfoPanel();
+}
+function closePlotInfoPanel() {
+  plotInfoPanel.style.display = 'none';
+  plotInfoPanelOpen = false;
+  document.getElementById('plotInfoBtn').style.background = '#334155';
+}
+function refreshPlotInfoPanel() {
+  if (!plotInfoPanelOpen) return;
+  const p = selected ? plots.find(pl=>pl.id===selected) : null;
+  if (!p) {
+    plotInfoContent.innerHTML = `<div style="font-size:11px;color:#475569;text-align:center;padding:20px 0;">কোনো প্লট সিলেক্ট করুন</div>`;
+    return;
+  }
+  if (!p.plotInfo) p.plotInfo = {};
+  const pi = getPlotInfo(p);
+
+  const items = [
+    { key:'showName',   label:'নাম',          icon:'🏷️', sizeKey:'nameSize'   },
+    { key:'showShotok', label:'শতক',          icon:'📐', sizeKey:'shotokSize' },
+    { key:'showSqft',   label:'বর্গফুট',      icon:'📏', sizeKey:'sqftSize'   },
+    { key:'showLength', label:'বাহুর দৈর্ঘ্য', icon:'📌', sizeKey:'lengthSize' },
+  ];
+
+  plotInfoContent.innerHTML = `
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">
+      প্লট: <b style="color:#f8fafc;">${p.label}</b>
+    </div>
+    ${items.map(item => {
+      const on = pi[item.key];
+      const sz = p.plotInfo[item.sizeKey] || getDefaultFontSize(item.key);
+      return `
+      <div style="margin-bottom:6px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;
+          padding:8px 10px;border-radius:6px;
+          background:${on?'#1e3a5f':'#1e293b'};
+          border:1px solid ${on?'#3b82f6':'#334155'};">
+          <span style="font-size:12px;color:${on?'#f8fafc':'#64748b'};">
+            ${item.icon} ${item.label}
+          </span>
+          <button data-toggle="${item.key}" style="
+            background:${on?'#2563eb':'#334155'};color:#fff;border:none;
+            border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;
+          ">${on?'✅ চালু':'⬜ বন্ধ'}</button>
+        </div>
+        ${on ? `
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 10px 0;">
+          <span style="font-size:10px;color:#64748b;min-width:40px;">ফন্ট সাইজ</span>
+          <button data-fz-dec="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:12px;">−</button>
+          <span data-fz-val="${item.key}" style="font-size:11px;color:#f8fafc;min-width:24px;text-align:center;">${sz}</span>
+          <button data-fz-inc="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:12px;">+</button>
+        </div>
+        ` : ''}
+      </div>
+      `;
+    }).join('')}
+    <div style="margin-top:12px;border-top:1px solid #334155;padding-top:10px;display:flex;gap:6px;">
+      <button data-pi-all="show" class="btn" style="background:#16a34a;flex:1;font-size:11px;">✅ সব চালু</button>
+      <button data-pi-all="hide" class="btn" style="background:#475569;flex:1;font-size:11px;">⬜ সব বন্ধ</button>
+    </div>
+  `;
+
+  // Toggle buttons
+  plotInfoContent.querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = btn.dataset.toggle;
+      const pp = plots.find(pl=>pl.id===selected);
+      if (!pp) return;
+      if (!pp.plotInfo) pp.plotInfo = {};
+      pp.plotInfo[key] = !getPlotInfo(pp)[key];
+      renderPlots();
+      refreshPlotInfoPanel();
+    });
+  });
+
+  // Font size buttons
+  plotInfoContent.querySelectorAll('[data-fz-dec],[data-fz-inc]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = btn.dataset.fzDec || btn.dataset.fzInc;
+      const inc = !!btn.dataset.fzInc;
+      const pp = plots.find(pl=>pl.id===selected);
+      if (!pp) return;
+      if (!pp.plotInfo) pp.plotInfo = {};
+      const sizeKey = items.find(i=>i.key===key)?.sizeKey;
+      if (!sizeKey) return;
+      const cur = pp.plotInfo[sizeKey] || getDefaultFontSize(key);
+      pp.plotInfo[sizeKey] = Math.max(6, Math.min(32, cur + (inc ? 1 : -1)));
+      renderPlots();
+      refreshPlotInfoPanel();
+    });
+  });
+
+  // Show all / Hide all
+  plotInfoContent.querySelectorAll('[data-pi-all]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const show = btn.dataset.piAll === 'show';
+      const pp = plots.find(pl=>pl.id===selected);
+      if (!pp) return;
+      if (!pp.plotInfo) pp.plotInfo = {};
+      ['showName','showShotok','showSqft','showLength'].forEach(k => pp.plotInfo[k] = show);
+      renderPlots(); refreshPlotInfoPanel();
+    });
+  });
+}
+
+function getDefaultFontSize(key) {
+  return {showName:16, showShotok:10, showSqft:9, showLength:8}[key] || 10;
+}
+
+document.getElementById('plotInfoBtn').addEventListener('click', () => {
+  if (plotInfoPanelOpen) closePlotInfoPanel();
+  else openPlotInfoPanel();
+});
+document.getElementById('closePlotInfoBtn').addEventListener('click', closePlotInfoPanel);
 
 document.getElementById('mouzaBtn').addEventListener('click', () => {
   if (mouzaPanelOpen) closeMouzaPanel(); else openMouzaPanel();
