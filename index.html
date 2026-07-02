@@ -1374,12 +1374,14 @@ function renderPlots(){
     const g = svgEl('g', {class:'plot-group' + (isLocked?' locked':''), 'data-id':p.id});
 
     const innerG = svgEl('g');
+    const strokeOp = typeof p.strokeOpacity === 'number' ? p.strokeOpacity : 1;
     const poly = svgEl('polygon', {
       points: toSVGPts(p.corners),
       fill: p.color,
       stroke: isSel ? '#1d4ed8' : p.border,
       'stroke-width': isSel ? 2.5 : 1.8,
       'fill-opacity': isLocked ? Math.min(getOpacity(p), 0.6) : getOpacity(p),
+      'stroke-opacity': isSel ? 1 : strokeOp,
     });
     if (isLocked) poly.setAttribute('stroke-dasharray', '6,3');
     if (isSel) poly.setAttribute('filter','url(#selGlow)');
@@ -1696,10 +1698,16 @@ function renderSidebar(){
     <div class="field-label">রঙ</div>
     <div class="color-row" id="colorRow"></div>
 
-    <div class="field-label" style="margin-top:8px;">🌫️ স্বচ্ছতা (Transparency)</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+    <div class="field-label" style="margin-top:8px;">🌫️ রঙের স্বচ্ছতা (Fill)</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
       <input type="range" id="opacitySlider" min="0" max="100" step="5" value="${Math.round(getOpacity(selPlot)*100)}" style="flex:1;" ${isLocked?'disabled':''}>
       <span id="opacityVal" style="font-size:10px;color:#94a3b8;min-width:32px;text-align:right;">${Math.round(getOpacity(selPlot)*100)}%</span>
+    </div>
+
+    <div class="field-label">📏 বাহুর স্বচ্ছতা (Stroke)</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+      <input type="range" id="strokeOpacitySlider" min="0" max="100" step="5" value="${Math.round((typeof selPlot.strokeOpacity==='number'?selPlot.strokeOpacity:1)*100)}" style="flex:1;" ${isLocked?'disabled':''}>
+      <span id="strokeOpacityVal" style="font-size:10px;color:#94a3b8;min-width:32px;text-align:right;">${Math.round((typeof selPlot.strokeOpacity==='number'?selPlot.strokeOpacity:1)*100)}%</span>
     </div>
 
     <div class="field-label" style="margin-top:10px;border-top:1px solid #334155;padding-top:8px;">🗂️ ওভারল্যাপ ক্রম (Layer Order)</div>
@@ -2010,6 +2018,22 @@ function renderSidebar(){
   }
   opacitySliderEl.addEventListener('change', endOpacityGesture);
   opacitySliderEl.addEventListener('mouseup', endOpacityGesture);
+
+  const strokeOpacitySliderEl = document.getElementById('strokeOpacitySlider');
+  const strokeOpacityValEl = document.getElementById('strokeOpacityVal');
+  let strokeOpGestureActive = false;
+  strokeOpacitySliderEl.addEventListener('input', (e) => {
+    if (!strokeOpGestureActive) { pushHistory(); strokeOpGestureActive = true; }
+    const pct = parseInt(e.target.value);
+    strokeOpacityValEl.textContent = pct + '%';
+    selPlot.strokeOpacity = pct / 100;
+    setSvgSize(); renderPlots(); renderDecorations();
+  });
+  function endStrokeOpGesture(){
+    if (strokeOpGestureActive) { strokeOpGestureActive = false; commitHistory(); }
+  }
+  strokeOpacitySliderEl.addEventListener('change', endStrokeOpGesture);
+  strokeOpacitySliderEl.addEventListener('mouseup', endStrokeOpGesture);
 
   document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
   document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
@@ -2494,7 +2518,6 @@ let arrowMoveSessionActive = false;
 let arrowMoveSessionTimer = null;
 function handleArrowKeyMove(e){
   if (!selected) return;
-  // Don't hijack arrow keys while typing in an input/textarea
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea') return;
 
@@ -2708,7 +2731,7 @@ function toSVGCoord(e){
 }
 function startDragPlot(e, id){
   const p0 = plots.find(pl=>pl.id===id);
-  if (p0 && p0.locked) { selectPlot(id); return; } // locked: select only, no drag
+  if (p0 && p0.locked) { selectPlot(id); return; }
   e.preventDefault(); e.stopPropagation();
   selectPlot(id);
   pushHistory();
@@ -2744,7 +2767,6 @@ function onDragMove(e){
   if (dragState.type === 'move') {
     let dx = (cur.x - dragState.start.x)/PX_PER_FT;
     let dy = (cur.y - dragState.start.y)/PX_PER_FT;
-    // Magnetic snap to nearby plots' edges/corners
     const snapResult = computeSnapOffset(dragState.id, dragState.orig, dx, dy);
     dx = snapResult.dx; dy = snapResult.dy;
     p.corners = translateCorners(dragState.orig, dx, dy);
