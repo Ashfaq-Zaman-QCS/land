@@ -123,6 +123,13 @@
     border-top:1px solid #334155; margin:3px 0;
   }
 
+  /* Sheet context menu */
+  #sheetContextMenu .ctx-item {
+    padding:8px 14px; cursor:pointer; font-size:12px; color:#f8fafc;
+    display:flex; align-items:center; gap:8px;
+  }
+  #sheetContextMenu .ctx-item:hover { background:#334155; }
+
   .plot-group { cursor:grab; }
   .plot-group:active { cursor:grabbing; }
   .plot-group.locked { cursor:not-allowed; }
@@ -131,11 +138,11 @@
   input[type=file] { display:none; }
 
   #addedToast {
-    position:absolute; top:16px; left:50%; transform:translateX(-50%);
+    position:fixed; top:72px; left:50%; transform:translateX(-50%);
     background:#1d4ed8; color:#fff; padding:10px 18px; border-radius:6px;
-    font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.2);
+    font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.3);
     opacity:0; pointer-events:none; transition:opacity 0.3s;
-    z-index:50; max-width:85%; text-align:center; line-height:1.5;
+    z-index:9998; max-width:80%; text-align:center; line-height:1.5;
   }
   #addedToast.show { opacity:1; }
 </style>
@@ -314,7 +321,6 @@
     </div>
 
     <div id="canvasWrap" style="flex:1;overflow:auto;background:#ffffff;position:relative;">
-      <div id="addedToast"></div>
       <svg id="svgCanvas" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <filter id="selGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -344,9 +350,39 @@
   </div>
 </div>
 
+<!-- Custom confirm dialog -->
+<div id="customConfirm" style="
+  display:none;position:fixed;inset:0;z-index:99999;
+  background:rgba(0,0,0,0.6);align-items:center;justify-content:center;
+">
+  <div style="background:#1e293b;border:1px solid #475569;border-radius:10px;
+    padding:24px;max-width:320px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+    <div id="confirmMsg" style="font-size:14px;color:#f8fafc;margin-bottom:20px;line-height:1.5;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button id="confirmNo" style="background:#334155;color:#f8fafc;border:none;
+        border-radius:6px;padding:8px 20px;cursor:pointer;font-size:13px;">বাতিল</button>
+      <button id="confirmYes" style="background:#dc2626;color:#fff;border:none;
+        border-radius:6px;padding:8px 20px;cursor:pointer;font-size:13px;font-weight:700;">মুছুন</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification (fixed, always centered) -->
+<div id="addedToast"></div>
+
 <!-- Edge right-click context menu -->
 <div id="edgeContextMenu">
   <div class="ctx-item" id="ctxSplitEdge">✂️ বাহু দুই ভাগ করুন</div>
+</div>
+
+<!-- Sheet tab right-click context menu -->
+<div id="sheetContextMenu" style="
+  position:fixed;z-index:9999;display:none;
+  background:#1e293b;border:1px solid #475569;border-radius:6px;
+  padding:4px 0;box-shadow:0 4px 16px rgba(0,0,0,0.4);min-width:160px;
+">
+  <div class="ctx-item" id="ctxDuplicateSheet">📄 Sheet ডুপ্লিকেট করুন</div>
+  <div class="ctx-item" id="ctxDeleteSheet" style="color:#f87171;">🗑️ Sheet মুছুন</div>
 </div>
 
 <script>
@@ -1011,7 +1047,7 @@ const INITIAL_PLOTS = [
     corners: { nw:[0,0], ne:[260,0], se:[175,245], sw:[0,245] }, labelPos:[120,130] },
 ];
 
-let sheets = [makeSheet('Sheet ১', INITIAL_PLOTS)];
+let sheets = [makeSheet('Sheet ১', [])];
 let activeSheetIdx = 0;
 
 // Flat state variables — all existing code reads/writes these.
@@ -1097,15 +1133,40 @@ function addSheet() {
   showToast(`📋 "${newName}" যোগ হয়েছে`);
 }
 
-function deleteSheet(idx) {
-  if (sheets.length === 1) { showToast('⚠️ শেষ sheet মুছতে পারবেন না'); return; }
-  if (!confirm(`"${sheets[idx].name}" মুছে ফেলবেন?`)) return;
+function duplicateSheet(idx) {
   saveSheetState();
-  sheets.splice(idx, 1);
-  activeSheetIdx = Math.min(activeSheetIdx, sheets.length - 1);
+  const src = sheets[idx];
+  const newName = src.name + ' (কপি)';
+  const dup = makeSheet(newName, []);
+  // Deep copy all sheet data
+  dup.plots      = JSON.parse(JSON.stringify(src.plots));
+  dup.nextId     = src.nextId;
+  dup.zoom       = src.zoom;
+  dup.showSides  = src.showSides;
+  dup.showAngles = src.showAngles;
+  dup.gpsAnchor  = src.gpsAnchor ? JSON.parse(JSON.stringify(src.gpsAnchor)) : null;
+  dup.mouzaImage = src.mouzaImage ? JSON.parse(JSON.stringify({...src.mouzaImage, dataUrl: src.mouzaImage.dataUrl})) : null;
+  dup.mouzaScale = src.mouzaScale ? {...src.mouzaScale} : null;
+  // Insert right after the source sheet
+  sheets.splice(idx + 1, 0, dup);
+  activeSheetIdx = idx + 1;
   loadSheetState(activeSheetIdx);
   renderAll();
   renderSheetTabs();
+  showToast(`📄 "${newName}" তৈরি হয়েছে`);
+}
+
+function deleteSheet(idx) {
+  if (sheets.length === 1) { showToast('⚠️ শেষ sheet মুছতে পারবেন না'); return; }
+  showConfirm(`"${sheets[idx].name}" মুছে ফেলবেন?`, () => {
+    saveSheetState();
+    sheets.splice(idx, 1);
+    activeSheetIdx = Math.min(activeSheetIdx, sheets.length - 1);
+    loadSheetState(activeSheetIdx);
+    renderAll();
+    renderSheetTabs();
+    showToast('🗑️ Sheet মুছে ফেলা হয়েছে');
+  });
 }
 
 function renameSheet(idx, newName) {
@@ -2168,20 +2229,44 @@ function renderSheetTabs() {
       span.textContent = s.name;
       span.style.cssText = 'pointer-events:none;';
       tab.appendChild(span);
-      tab.addEventListener('click', () => switchToSheet(idx));
+      tab.addEventListener('click', (e) => {
+        // Don't switch sheet if × was clicked
+        if (e.target.classList.contains('tab-close')) return;
+        switchToSheet(idx);
+      });
     }
 
-    // Close button (×) — only show if more than 1 sheet
+    // Close button (×) — always show if more than 1 sheet
     if (sheets.length > 1) {
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
       closeBtn.textContent = '×';
       closeBtn.title = 'Sheet মুছুন';
-      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteSheet(idx); });
+      const capturedIdx = idx; // capture idx explicitly
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        setTimeout(() => deleteSheet(capturedIdx), 0);
+      });
       tab.appendChild(closeBtn);
     }
 
     tabsEl.appendChild(tab);
+
+    // Right-click → sheet context menu
+    tab.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      sheetCtxTarget = idx;
+      const menu = document.getElementById('sheetContextMenu');
+      menu.style.display = 'block';
+      let left = e.clientX, top = e.clientY;
+      if (left + 170 > window.innerWidth) left = e.clientX - 170;
+      menu.style.left = left + 'px';
+      menu.style.top  = top  + 'px';
+      // Hide delete option if only 1 sheet
+      document.getElementById('ctxDeleteSheet').style.display =
+        sheets.length > 1 ? 'flex' : 'none';
+    });
   });
 }
 
@@ -2553,6 +2638,29 @@ window.addEventListener('keydown', handleArrowKeyMove);
 const edgeContextMenuEl = document.getElementById('edgeContextMenu');
 let edgeContextTarget = null; // { plotId, edgeIdx, svgX, svgY }
 
+// ── Sheet tab context menu ──
+let sheetCtxTarget = null; // idx of right-clicked sheet tab
+
+function hideSheetContextMenu() {
+  document.getElementById('sheetContextMenu').style.display = 'none';
+  sheetCtxTarget = null;
+}
+
+document.getElementById('ctxDuplicateSheet').addEventListener('click', () => {
+  if (sheetCtxTarget !== null) duplicateSheet(sheetCtxTarget);
+  hideSheetContextMenu();
+});
+document.getElementById('ctxDeleteSheet').addEventListener('click', () => {
+  if (sheetCtxTarget !== null) deleteSheet(sheetCtxTarget);
+  hideSheetContextMenu();
+});
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('sheetContextMenu').contains(e.target)) hideSheetContextMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideSheetContextMenu();
+});
+
 function showEdgeContextMenu(e, plotId, edgeIdx, clientX, clientY) {
   // Convert clientX/Y to SVG coordinates for the split point
   const svgPt = svg.createSVGPoint();
@@ -2636,6 +2744,26 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.getElementById('ctxSplitEdge').addEventListener('click', splitEdge);
+
+function showConfirm(msg, onYes) {
+  const dlg = document.getElementById('customConfirm');
+  document.getElementById('confirmMsg').textContent = msg;
+  dlg.style.display = 'flex';
+  const yes = document.getElementById('confirmYes');
+  const no  = document.getElementById('confirmNo');
+  // Clone to remove old listeners
+  const yesNew = yes.cloneNode(true);
+  const noNew  = no.cloneNode(true);
+  yes.parentNode.replaceChild(yesNew, yes);
+  no.parentNode.replaceChild(noNew, no);
+  yesNew.addEventListener('click', () => {
+    dlg.style.display = 'none';
+    onYes();
+  });
+  noNew.addEventListener('click', () => {
+    dlg.style.display = 'none';
+  });
+}
 
 function showToast(msg){
   addedToast.textContent = msg;
