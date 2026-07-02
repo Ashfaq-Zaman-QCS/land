@@ -244,6 +244,11 @@
 
       <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
 
+      <!-- Link unit toggle -->
+      <button class="btn" id="linkToggleBtn" style="background:#334155;font-size:11px;" title="ফুট ↔ লিংক (শিকল) পরিমাপ">⛓️ লিংক</button>
+
+      <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
+
       <!-- Mouza -->
       <button class="btn" style="background:#b45309;" id="mouzaBtn">🗺️ মৌজা</button>
     </div>
@@ -385,6 +390,28 @@ function toFeetInches(ftDecimal) {
   if (inches === 0) return `${feetBn} ফু`;
   return `${feetBn} ফু ${inchesBn} ই`;
 }
+
+// Surveyor's Link conversion: 1 link = 0.66 feet
+const FT_PER_LINK = 0.66;
+
+// Format feet as "X.XX লিংক"
+function toLinkStr(ftDecimal) {
+  const links = ftDecimal / FT_PER_LINK;
+  const li = parseFloat(links.toFixed(2));
+  // Bengali numeral for decimal
+  const intPart = Math.floor(li);
+  const fracPart = Math.round((li - intPart) * 100);
+  if (fracPart > 0)
+    return `${toBnLabel(intPart)}.${toBnLabel(fracPart).padStart(2,'০')} লি`;
+  return `${toBnLabel(intPart)} লি`;
+}
+
+// Returns display string based on current unit mode
+let showLinks = false;
+function lenStr(ftDecimal) {
+  return showLinks ? toLinkStr(ftDecimal) : toFeetInches(ftDecimal);
+}
+
 function polyArea(pts) {
   let a = 0, n = pts.length;
   for (let i=0;i<n;i++){
@@ -1384,7 +1411,7 @@ function renderPlots(){
           transform: `rotate(${rotate},${x},${y})`,
           style: 'pointer-events:none;user-select:none;'
         });
-        txt.textContent = prefix + toFeetInches(len);
+        txt.textContent = prefix + lenStr(len);
         innerG.appendChild(txt);
       }
     }
@@ -1585,7 +1612,7 @@ function renderSidebar(){
     const dec = getDecimal(p.corners);
     const sides = getSides(p.corners);
     const sidesText = isQuad(p.corners)
-      ? `উ:${toFeetInches(sides.N)} পূ:${toFeetInches(sides.E)} দ:${toFeetInches(sides.S)} প:${toFeetInches(sides.W)}`
+      ? `উ:${lenStr(sides.N)} পূ:${lenStr(sides.E)} দ:${lenStr(sides.S)} প:${lenStr(sides.W)}`
       : `${toBnLabel(sides.length)}-কোণা শেপ`;
     const div = document.createElement('div');
     div.className = 'plot-item' + (selected===p.id ? ' selected' : '');
@@ -1715,23 +1742,34 @@ function renderSidebar(){
 
   const sideInputsEl = document.getElementById('sideInputs');
   const sides = getSides(selPlot.corners);
+
   if (isQuad(selPlot.corners)) {
     if (!selPlot.lockedSides) selPlot.lockedSides = { N:false, E:false, S:false, W:false };
     ['N','W','S','E'].forEach(side => {
-      if (sideEdits[side] === undefined) sideEdits[side] = String(sides[side]);
+      const ftVal = sides[side];
+      const linkVal = parseFloat((ftVal / FT_PER_LINK).toFixed(3));
+      // box shows: link mode → link value, else → feet value
+      const boxVal  = showLinks ? linkVal.toFixed(3) : ftVal.toFixed(3);
+      const refStr  = showLinks ? toFeetInches(ftVal) : toLinkStr(ftVal);
+      if (sideEdits[side] === undefined) sideEdits[side] = boxVal;
       const sideLocked = !!selPlot.lockedSides[side];
       const row = document.createElement('div');
       row.className = 'side-edit-row';
       row.innerHTML = `
-        <div class="lbl">${SIDE_LABELS[side]} — ফুট <span style="color:#64748b;">(${toFeetInches(sides[side])})</span></div>
+        <div class="lbl" style="display:flex;justify-content:space-between;">
+          <span>${SIDE_LABELS[side]}</span>
+          <span style="color:#475569;font-size:9px;">${refStr}</span>
+        </div>
         <div class="side-edit-inner">
-          <input type="text" data-side="${side}" value="${sideEdits[side]}" ${(isLocked||sideLocked)?'disabled':''}>
+          <input type="text" data-side="${side}" value="${sideEdits[side]}"
+            ${(isLocked||sideLocked)?'disabled':''}
+            style="flex:1;min-width:0;">
           <div class="inch-arrows">
             <button class="inch-btn" data-step-side="${side}" data-dir="up" ${(isLocked||sideLocked)?'disabled':''}>▲</button>
             <button class="inch-btn" data-step-side="${side}" data-dir="dn" ${(isLocked||sideLocked)?'disabled':''}>▼</button>
           </div>
           <button class="btn" data-apply="${side}" style="background:#2563eb;" ${(isLocked||sideLocked)?'disabled':''}>✔</button>
-          <button class="btn" data-lockside="${side}" title="${sideLocked?'এই বাহু আনলক করুন':'এই বাহু লক করুন'}"
+          <button class="btn" data-lockside="${side}"
             style="background:${sideLocked?'#f59e0b':'#334155'};padding:4px 7px;font-size:11px;"
             ${isLocked?'disabled':''}>${sideLocked?'🔒':'🔓'}</button>
         </div>
@@ -1756,8 +1794,8 @@ function renderSidebar(){
         const p = plots.find(pl=>pl.id===selected);
         if (!p || p.locked || (p.lockedSides && p.lockedSides[side])) return;
         const cur = parseFloat(toEn(sideEdits[side]||'0')) || getSides(p.corners)[side];
-        const delta = btn.dataset.dir === 'up' ? 1/12 : -1/12;
-        const newVal = Math.max(1/12, cur + delta);
+        const delta = btn.dataset.dir === 'up' ? 0.1 : -0.1;
+        const newVal = Math.max(0.1, parseFloat((cur + delta).toFixed(4)));
         sideEdits[side] = newVal.toFixed(4);
         applySideChange(side);
       });
@@ -1781,19 +1819,25 @@ function renderSidebar(){
     if (!selPlot.lockedSides) selPlot.lockedSides = {};
     sides.forEach((len, idx) => {
       const sideLocked = !!selPlot.lockedSides[idx];
-      if (sideEdits[idx] === undefined) sideEdits[idx] = String(len.toFixed(2));
+      const boxVal = showLinks ? (len/FT_PER_LINK).toFixed(3) : len.toFixed(3);
+      const refStr = showLinks ? toFeetInches(len) : toLinkStr(len);
+      if (sideEdits[idx] === undefined) sideEdits[idx] = boxVal;
       const row = document.createElement('div');
       row.className = 'side-edit-row';
       row.innerHTML = `
-        <div class="lbl">বাহু ${toBnLabel(idx+1)} <span style="color:#64748b;">(${toFeetInches(len)})</span></div>
+        <div class="lbl" style="display:flex;justify-content:space-between;">
+          <span>বাহু ${toBnLabel(idx+1)}</span>
+          <span style="color:#475569;font-size:9px;">${refStr}</span>
+        </div>
         <div class="side-edit-inner">
-          <input type="text" data-polyidx="${idx}" value="${sideEdits[idx]}" ${(isLocked||sideLocked)?'disabled':''}>
+          <input type="text" data-polyidx="${idx}" value="${sideEdits[idx]}"
+            ${(isLocked||sideLocked)?'disabled':''} style="flex:1;min-width:0;">
           <div class="inch-arrows">
             <button class="inch-btn" data-step-poly="${idx}" data-dir="up" ${(isLocked||sideLocked)?'disabled':''}>▲</button>
             <button class="inch-btn" data-step-poly="${idx}" data-dir="dn" ${(isLocked||sideLocked)?'disabled':''}>▼</button>
           </div>
           <button class="btn" data-polyapply="${idx}" style="background:#2563eb;" ${(isLocked||sideLocked)?'disabled':''}>✔</button>
-          <button class="btn" data-polylockside="${idx}" title="${sideLocked?'আনলক করুন':'লক করুন'}"
+          <button class="btn" data-polylockside="${idx}"
             style="background:${sideLocked?'#f59e0b':'#334155'};padding:4px 7px;font-size:11px;"
             ${isLocked?'disabled':''}>${sideLocked?'🔒':'🔓'}</button>
         </div>
@@ -1819,8 +1863,8 @@ function renderSidebar(){
         if (!p || p.locked || (p.lockedSides && p.lockedSides[idx])) return;
         const sides = getSides(p.corners);
         const cur = parseFloat(toEn(String(sideEdits[idx]||'0'))) || sides[idx];
-        const delta = btn.dataset.dir === 'up' ? 1/12 : -1/12;
-        const newVal = Math.max(1/12, cur + delta);
+        const delta = btn.dataset.dir === 'up' ? 0.1 : -0.1;
+        const newVal = Math.max(0.1, parseFloat((cur + delta).toFixed(4)));
         sideEdits[idx] = newVal.toFixed(4);
         applyPolySideChange(idx);
       });
@@ -2151,8 +2195,10 @@ function applySideChange(side){
     showToast(`🔒 ${SIDE_LABELS[side]} বাহু লকড — আনলক করে তারপর বদলান`);
     return;
   }
-  const val = parseFloat(toEn(sideEdits[side]));
+  let val = parseFloat(toEn(sideEdits[side]));
   if (isNaN(val) || val <= 0) return;
+  // Convert from link to feet if in link mode
+  if (showLinks) val = val * FT_PER_LINK;
   pushHistory();
   const origCorners = JSON.parse(JSON.stringify(p.corners));
   p.corners = updateSide(p.corners, side, val);
@@ -2173,8 +2219,9 @@ function applyPolySideChange(edgeIdx){
     showToast(`🔒 বাহু ${toBnLabel(edgeIdx+1)} লকড — আনলক করে তারপর বদলান`);
     return;
   }
-  const val = parseFloat(toEn(String(sideEdits[edgeIdx])));
+  let val = parseFloat(toEn(String(sideEdits[edgeIdx])));
   if (isNaN(val) || val <= 0) return;
+  if (showLinks) val = val * FT_PER_LINK; // convert link to feet
   const pts = p.corners.slice(); // array of [x,y]
   const n = pts.length;
   const i = edgeIdx;
@@ -2323,12 +2370,20 @@ function mergePlots(idA, idB){
 
 function refreshSideEditsFor(plot){
   const sides = getSides(plot.corners);
+  function toBoxVal(ft) {
+    const v = showLinks ? ft / FT_PER_LINK : ft;
+    return v.toFixed(3);
+  }
   if (isQuad(plot.corners)) {
-    sideEdits = { N:String(sides.N), E:String(sides.E), S:String(sides.S), W:String(sides.W) };
+    sideEdits = {
+      N: toBoxVal(sides.N),
+      E: toBoxVal(sides.E),
+      S: toBoxVal(sides.S),
+      W: toBoxVal(sides.W),
+    };
   } else {
-    // General polygon: index-based sideEdits
     sideEdits = {};
-    sides.forEach((len, idx) => { sideEdits[idx] = String(len.toFixed(2)); });
+    sides.forEach((len, idx) => { sideEdits[idx] = toBoxVal(len); });
   }
 }
 
@@ -2419,7 +2474,7 @@ function updateListAndTotalsOnly(){
     const dec = getDecimal(p.corners);
     const sides = getSides(p.corners);
     const sidesText = isQuad(p.corners)
-      ? `উ:${toFeetInches(sides.N)} পূ:${toFeetInches(sides.E)} দ:${toFeetInches(sides.S)} প:${toFeetInches(sides.W)}`
+      ? `উ:${lenStr(sides.N)} পূ:${lenStr(sides.E)} দ:${lenStr(sides.S)} প:${lenStr(sides.W)}`
       : `${sides.length}-কোণা শেপ`;
     const div = document.createElement('div');
     div.className = 'plot-item' + (selected===p.id ? ' selected' : '');
@@ -3230,6 +3285,21 @@ showSidesChk.addEventListener('change', (e) => {
 
 document.getElementById('showAnglesChk').addEventListener('change', (e) => {
   showAngles = e.target.checked;
+  renderAll();
+});
+
+document.getElementById('linkToggleBtn').addEventListener('click', () => {
+  showLinks = !showLinks;
+  const btn = document.getElementById('linkToggleBtn');
+  btn.style.background = showLinks ? '#0284c7' : '#334155';
+  btn.style.color = showLinks ? '#fff' : '';
+  sideEdits = {}; // force reinit in new unit
+  // Refresh sideEdits so box values switch units
+  if (selected) {
+    const p = plots.find(pl=>pl.id===selected);
+    if (p) refreshSideEditsFor(p);
+  }
+  showToast(showLinks ? '⛓️ লিংক মোড চালু' : '📏 ফুট মোডে ফিরে এসেছে');
   renderAll();
 });
 
