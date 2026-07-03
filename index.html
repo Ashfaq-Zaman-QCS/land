@@ -1715,9 +1715,10 @@ function renderPlots(){
           const cornerSideLocked = p.lockedSides && adjSides.some(s => p.lockedSides[s]);
           const cornerLocked = cornerSideLocked; // angle-lock no longer disables handle
           const handle = svgEl('circle', {
-            class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:7,
+            class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:4,
             fill: cornerLocked ? '#6b7280' : '#2563eb',
-            stroke:'#ffffff', 'stroke-width':2,
+            'fill-opacity': '0.5',
+            stroke:'#ffffff', 'stroke-width':1.5,
             style: cornerLocked ? 'cursor:not-allowed;' : '',
           });
           if (!cornerLocked) {
@@ -1735,9 +1736,10 @@ function renderPlots(){
           const cornerLocked = sideCornerLocked; // angle-lock no longer disables handle
           const [cx,cy] = pt;
           const handle = svgEl('circle', {
-            class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:7,
+            class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:4,
             fill: cornerLocked ? '#6b7280' : '#2563eb',
-            stroke:'#ffffff', 'stroke-width':2,
+            'fill-opacity': '0.5',
+            stroke:'#ffffff', 'stroke-width':1.5,
             style: cornerLocked ? 'cursor:not-allowed;' : '',
           });
           if (!cornerLocked) {
@@ -3038,6 +3040,14 @@ function startDragCorner(e, plotId, cornerKey){
 
   const origCorners = JSON.parse(JSON.stringify(p0.corners));
   dragState = { type:'corner', id:plotId, cornerKey, origSideLengths, origCorners };
+  // Force hide cursor — use a style tag with !important to override SVG element cursors
+  let cursorStyle = document.getElementById('dragCursorStyle');
+  if (!cursorStyle) {
+    cursorStyle = document.createElement('style');
+    cursorStyle.id = 'dragCursorStyle';
+    document.head.appendChild(cursorStyle);
+  }
+  cursorStyle.textContent = '* { cursor: none !important; }';
   window.addEventListener('mousemove', onDragMove);
   window.addEventListener('mouseup', onDragUp);
 }
@@ -3158,6 +3168,12 @@ function onDragUp(){
     commitHistory();
   }
   dragState = null;
+  svg.style.cursor = '';
+  canvasWrap.style.cursor = '';
+  document.documentElement.style.cursor = '';
+  document.body.style.cursor = '';
+  const cursorStyle = document.getElementById('dragCursorStyle');
+  if (cursorStyle) cursorStyle.textContent = '';
   window.removeEventListener('mousemove', onDragMove);
   window.removeEventListener('mouseup', onDragUp);
 }
