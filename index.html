@@ -578,11 +578,12 @@ function centerOf(c){
   const sx = pts.reduce((s,p)=>s+p[0],0), sy = pts.reduce((s,p)=>s+p[1],0);
   return [sx/pts.length, sy/pts.length];
 }
-function updateSide(corners, side, newLen){
+function updateSide(corners, side, newLen, lockedSides){
   // Only applies to classic 4-corner quads (side editing UI is N/E/S/W specific)
   if (!isQuad(corners)) return corners;
   let {nw,ne,se,sw} = corners;
   nw=[...nw]; ne=[...ne]; se=[...se]; sw=[...sw];
+
   function scaleVec(p1,p2,len){
     const dx=p2[0]-p1[0], dy=p2[1]-p1[1];
     const old=Math.sqrt(dx*dx+dy*dy);
@@ -590,10 +591,37 @@ function updateSide(corners, side, newLen){
     const r=len/old;
     return [p1[0]+dx*r, p1[1]+dy*r];
   }
-  if(side==="N") ne = scaleVec(nw, ne, newLen);
-  else if(side==="S") se = scaleVec(sw, se, newLen);
-  else if(side==="E") se = scaleVec(ne, se, newLen);
-  else if(side==="W") sw = scaleVec(nw, sw, newLen);
+
+  // For each side, the default is: anchor=from, move=to.
+  // But if "to" corner has its OTHER adjacent side locked (frozen),
+  // flip: anchor=to, move=from.
+  const ls = lockedSides || {};
+  // corner → its two sides (excluding the side being edited)
+  const cornerOtherSide = {
+    N: { to:'ne', toOther:'E', from:'nw', fromOther:'W' },
+    E: { to:'se', toOther:'S', from:'ne', fromOther:'N' },
+    S: { to:'se', toOther:'E', from:'sw', fromOther:'W' },
+    W: { to:'sw', toOther:'S', from:'nw', fromOther:'N' },
+  };
+
+  const info = cornerOtherSide[side];
+  if (!info) return corners;
+  const toFrozen   = ls[info.toOther];
+  const fromFrozen = ls[info.fromOther];
+
+  if (side === 'N') {
+    if (toFrozen && !fromFrozen) nw = scaleVec(ne, nw, newLen);  // NE frozen → move NW
+    else                          ne = scaleVec(nw, ne, newLen);  // default: move NE
+  } else if (side === 'S') {
+    if (toFrozen && !fromFrozen) sw = scaleVec(se, sw, newLen);  // SE frozen → move SW
+    else                          se = scaleVec(sw, se, newLen);  // default: move SE
+  } else if (side === 'E') {
+    if (toFrozen && !fromFrozen) ne = scaleVec(se, ne, newLen);  // SE frozen → move NE
+    else                          se = scaleVec(ne, se, newLen);  // default: move SE
+  } else if (side === 'W') {
+    if (toFrozen && !fromFrozen) nw = scaleVec(sw, nw, newLen);  // SW frozen → move NW
+    else                          sw = scaleVec(nw, sw, newLen);  // default: move SW
+  }
   return {nw,ne,se,sw};
 }
 
@@ -734,6 +762,27 @@ function findLockedVertexPos(prev, origCur, next, targetDeg) {
 // After any shape change, ensure locked angle vertices maintain their target angle.
 // For each locked vertex: the UPSTREAM neighbour (prev) is treated as fixed anchor,
 // and we reposition the locked vertex along the prev→cur ray to restore the angle.
+// After shape changes, restore any corner that has at least one locked adjacent side.
+function enforceLockedSides(plot, origCorners) {
+  const ls = plot.lockedSides;
+  if (!ls || !Object.values(ls).some(v => v)) return;
+
+  if (isQuad(plot.corners)) {
+    const cornerToSides = {nw:['W','N'], ne:['N','E'], se:['E','S'], sw:['S','W']};
+    ['nw','ne','se','sw'].forEach(ck => {
+      const [s1, s2] = cornerToSides[ck];
+      if (ls[s1] || ls[s2]) plot.corners[ck] = [...origCorners[ck]];
+    });
+  } else {
+    const origPts = shapePoints(origCorners);
+    const n = plot.corners.length;
+    plot.corners.forEach((_, idx) => {
+      const prevEdge = (idx - 1 + n) % n;
+      if (ls[prevEdge] || ls[idx]) plot.corners[idx] = [...origPts[idx]];
+    });
+  }
+}
+
 function enforceAngleLocks(plot, origCorners) {
   if (!plot.lockedAngles) return;
   const lockedVerts = Object.keys(plot.lockedAngles)
@@ -2374,7 +2423,8 @@ function applySideChange(side){
   if (showLinks) val = val * FT_PER_LINK;
   pushHistory();
   const origCorners = JSON.parse(JSON.stringify(p.corners));
-  p.corners = updateSide(p.corners, side, val);
+  p.corners = updateSide(p.corners, side, val, p.lockedSides);
+  enforceLockedSides(p, origCorners);
   enforceAngleLocks(p, origCorners);
   p.labelPos = centerOf(p.corners);
   refreshSideEditsFor(p);
@@ -2408,6 +2458,7 @@ function applyPolySideChange(edgeIdx){
   pushHistory();
   const origCorners2 = JSON.parse(JSON.stringify(p.corners));
   p.corners = pts;
+  enforceLockedSides(p, origCorners2);
   enforceAngleLocks(p, origCorners2);
   p.labelPos = centerOf(p.corners);
   const newSides = getSides(p.corners);
@@ -2601,6 +2652,7 @@ function applyDecimalChange(rawVal){
   pushHistory();
   const origC = JSON.parse(JSON.stringify(p.corners));
   p.corners = scaleToDecimalWithLocks(p.corners, val, p.lockedSides || {});
+  enforceLockedSides(p, origC);
   enforceAngleLocks(p, origC);
   p.labelPos = centerOf(p.corners);
   refreshSideEditsFor(p);
@@ -2612,6 +2664,12 @@ function applyRotation(deltaDeg, skipRender){
   if (!selected) return;
   const p = plots.find(pl=>pl.id===selected);
   if (!p || p.locked) return;
+  // Block rotation if any side is locked (rotation moves all points)
+  const hasLockedSide = p.lockedSides && Object.values(p.lockedSides).some(v=>v);
+  if (hasLockedSide) {
+    showToast('🔒 বাহু লক থাকলে ঘোরানো যাবে না — আগে বাহুর লক সরান');
+    return;
+  }
   if (!skipRender || !rotationGestureActive) {
     pushHistory();
   }
@@ -3030,8 +3088,11 @@ function onDragMove(e){
       p.corners = newCorners;
     }
 
-    // Enforce angle locks if any
-    if (dragState.origCorners) enforceAngleLocks(p, dragState.origCorners);
+    // Enforce locks
+    if (dragState.origCorners) {
+      enforceLockedSides(p, dragState.origCorners);
+      enforceAngleLocks(p, dragState.origCorners);
+    }
     p.labelPos = centerOf(p.corners);
 
   } else if (dragState.type === 'corner') {
@@ -3078,8 +3139,9 @@ function onDragMove(e){
       }
       p.corners = newCorners;
     }
-    // Restore locked angle vertices to their original positions
+    // Restore locked side and angle vertices
     if (dragState.origCorners) {
+      enforceLockedSides(p, dragState.origCorners);
       enforceAngleLocks(p, dragState.origCorners);
     }
     p.labelPos = centerOf(p.corners);
