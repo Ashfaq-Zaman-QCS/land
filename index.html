@@ -1529,7 +1529,7 @@ function renderPlots(){
       points: toSVGPts(p.corners),
       fill: p.color,
       stroke: isSel ? '#1d4ed8' : p.border,
-      'stroke-width': isSel ? 2.5 : 1.8,
+      'stroke-width': isSel ? Math.max(2, (p.strokeWidth||1)+1) : (p.strokeWidth||1),
       'fill-opacity': isLocked ? Math.min(getOpacity(p), 0.6) : getOpacity(p),
       'stroke-opacity': isSel ? 1 : strokeOp,
     });
@@ -1603,7 +1603,8 @@ function renderPlots(){
         });
         if (!p.locked && !edgeLocked) {
           hitLine.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return; // left click only
+            if (splitMode) return; // split mode handles clicks differently
+            if (e.button !== 0) return;
             e.preventDefault();
             e.stopPropagation();
             selectPlot(p.id);
@@ -1617,8 +1618,8 @@ function renderPlots(){
     // (angle arcs rendered below, outside innerG, after g.appendChild(innerG))
 
 
-    innerG.addEventListener('mousedown', (e) => startDragPlot(e, p.id));
-    innerG.addEventListener('click', (e) => { e.stopPropagation(); selectPlot(p.id); });
+    innerG.addEventListener('mousedown', (e) => { if (splitMode) return; startDragPlot(e, p.id); });
+    innerG.addEventListener('click', (e) => { if (splitMode) return; e.stopPropagation(); selectPlot(p.id); });
     g.appendChild(innerG);
 
     // Angle arcs — appended to g (not innerG) so their click events
@@ -1722,7 +1723,7 @@ function renderPlots(){
             style: cornerLocked ? 'cursor:not-allowed;' : '',
           });
           if (!cornerLocked) {
-            handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, ck));
+            handle.addEventListener('mousedown', (e) => { if (splitMode) return; startDragCorner(e, p.id, ck); });
           }
           g.appendChild(handle);
         });
@@ -1733,7 +1734,7 @@ function renderPlots(){
           const prevEdge = (idx - 1 + n2) % n2;
           const nextEdge = idx;
           const sideCornerLocked = p.lockedSides && (p.lockedSides[prevEdge] || p.lockedSides[nextEdge]);
-          const cornerLocked = sideCornerLocked; // angle-lock no longer disables handle
+          const cornerLocked = sideCornerLocked;
           const [cx,cy] = pt;
           const handle = svgEl('circle', {
             class:'corner-handle', cx: cx*PX_PER_FT, cy: cy*PX_PER_FT, r:4,
@@ -1743,7 +1744,7 @@ function renderPlots(){
             style: cornerLocked ? 'cursor:not-allowed;' : '',
           });
           if (!cornerLocked) {
-            handle.addEventListener('mousedown', (e) => startDragCorner(e, p.id, idx));
+            handle.addEventListener('mousedown', (e) => { if (splitMode) return; startDragCorner(e, p.id, idx); });
           }
           g.appendChild(handle);
         });
@@ -1868,31 +1869,6 @@ function renderSidebar(){
       <button class="btn" id="rotateLeftBtn" style="background:#0284c7;" ${isLocked?'disabled':''}>↺ ১৫°</button>
       <input type="range" id="rotateSlider" min="0" max="359" step="1" value="0" style="flex:1;" ${isLocked?'disabled':''}>
       <button class="btn" id="rotateRightBtn" style="background:#0284c7;" ${isLocked?'disabled':''}>↻ ১৫°</button>
-    </div>
-
-    <div class="field-label">রঙ</div>
-    <div class="color-row" id="colorRow"></div>
-
-    <div class="field-label" style="margin-top:8px;">🌫️ রঙের স্বচ্ছতা (Fill)</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-      <input type="range" id="opacitySlider" min="0" max="100" step="5" value="${Math.round(getOpacity(selPlot)*100)}" style="flex:1;" ${isLocked?'disabled':''}>
-      <span id="opacityVal" style="font-size:10px;color:#94a3b8;min-width:32px;text-align:right;">${Math.round(getOpacity(selPlot)*100)}%</span>
-    </div>
-
-    <div class="field-label">📏 বাহুর স্বচ্ছতা (Stroke)</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-      <input type="range" id="strokeOpacitySlider" min="0" max="100" step="5" value="${Math.round((typeof selPlot.strokeOpacity==='number'?selPlot.strokeOpacity:1)*100)}" style="flex:1;" ${isLocked?'disabled':''}>
-      <span id="strokeOpacityVal" style="font-size:10px;color:#94a3b8;min-width:32px;text-align:right;">${Math.round((typeof selPlot.strokeOpacity==='number'?selPlot.strokeOpacity:1)*100)}%</span>
-    </div>
-
-    <div class="field-label" style="margin-top:10px;border-top:1px solid #334155;padding-top:8px;">🗂️ ওভারল্যাপ ক্রম (Layer Order)</div>
-    <div class="btn-row">
-      <button class="btn" id="bringToFrontBtn" style="background:#0284c7;flex:1;" ${isLocked?'disabled':''}>⬆️ সবার সামনে</button>
-      <button class="btn" id="sendToBackBtn" style="background:#0284c7;flex:1;" ${isLocked?'disabled':''}>⬇️ সবার পিছনে</button>
-    </div>
-    <div class="btn-row" style="margin-top:4px;">
-      <button class="btn" id="bringForwardBtn" style="background:#475569;flex:1;" ${isLocked?'disabled':''}>↗️ এক ধাপ সামনে</button>
-      <button class="btn" id="sendBackwardBtn" style="background:#475569;flex:1;" ${isLocked?'disabled':''}>↙️ এক ধাপ পিছনে</button>
     </div>
 
     <div class="field-label" style="margin-top:10px;border-top:1px solid #334155;padding-top:8px;">📋 কপি / পেস্ট</div>
@@ -2139,22 +2115,6 @@ function renderSidebar(){
     });
   }
 
-  const colorRow = document.getElementById('colorRow');
-  COLORS.forEach(([bg,bd]) => {
-    const sw = document.createElement('div');
-    sw.className = 'color-swatch' + (selPlot.color===bg ? ' active' : '');
-    sw.style.background = bg;
-    sw.style.borderColor = bd;
-    sw.addEventListener('click', () => {
-      if (selPlot.locked) return;
-      pushHistory();
-      selPlot.color = bg; selPlot.border = bd;
-      commitHistory();
-      renderAll();
-    });
-    colorRow.appendChild(sw);
-  });
-
   document.getElementById('deleteBtn').addEventListener('click', deletePlot);
   document.getElementById('lockBtn').addEventListener('click', toggleLock);
 
@@ -2177,43 +2137,6 @@ function renderSidebar(){
   });
   rotateSliderEl.addEventListener('change', endRotationGesture);
   rotateSliderEl.addEventListener('mouseup', endRotationGesture);
-
-  const opacitySliderEl = document.getElementById('opacitySlider');
-  const opacityValEl = document.getElementById('opacityVal');
-  let opacityGestureActive = false;
-  opacitySliderEl.addEventListener('input', (e) => {
-    if (!opacityGestureActive) { pushHistory(); opacityGestureActive = true; }
-    const pct = parseInt(e.target.value);
-    opacityValEl.textContent = pct + '%';
-    selPlot.opacity = pct / 100;
-    setSvgSize(); renderPlots(); renderDecorations(); // lightweight re-render, skip rebuilding sidebar (keeps slider focus)
-  });
-  function endOpacityGesture(){
-    if (opacityGestureActive) { opacityGestureActive = false; commitHistory(); }
-  }
-  opacitySliderEl.addEventListener('change', endOpacityGesture);
-  opacitySliderEl.addEventListener('mouseup', endOpacityGesture);
-
-  const strokeOpacitySliderEl = document.getElementById('strokeOpacitySlider');
-  const strokeOpacityValEl = document.getElementById('strokeOpacityVal');
-  let strokeOpGestureActive = false;
-  strokeOpacitySliderEl.addEventListener('input', (e) => {
-    if (!strokeOpGestureActive) { pushHistory(); strokeOpGestureActive = true; }
-    const pct = parseInt(e.target.value);
-    strokeOpacityValEl.textContent = pct + '%';
-    selPlot.strokeOpacity = pct / 100;
-    setSvgSize(); renderPlots(); renderDecorations();
-  });
-  function endStrokeOpGesture(){
-    if (strokeOpGestureActive) { strokeOpGestureActive = false; commitHistory(); }
-  }
-  strokeOpacitySliderEl.addEventListener('change', endStrokeOpGesture);
-  strokeOpacitySliderEl.addEventListener('mouseup', endStrokeOpGesture);
-
-  document.getElementById('bringToFrontBtn').addEventListener('click', bringToFront);
-  document.getElementById('sendToBackBtn').addEventListener('click', sendToBack);
-  document.getElementById('bringForwardBtn').addEventListener('click', bringForward);
-  document.getElementById('sendBackwardBtn').addEventListener('click', sendBackward);
 
   document.getElementById('copyPlotBtn').addEventListener('click', () => copyPlot(selPlot.id));
   const pasteBtn = document.getElementById('pastePlotBtn');
@@ -2252,6 +2175,7 @@ function renderSidebar(){
 
 function renderGPS(){
   gpsLayerG.innerHTML = "";
+  renderSplitOverlay(); // draw split mode overlay on top of GPS layer
   if (!gpsAnchor) return;
 
   // Draw anchor marker (small green circle with crosshairs)
@@ -2864,10 +2788,198 @@ document.addEventListener('click', (e) => {
   if (!edgeContextMenuEl.contains(e.target)) hideEdgeContextMenu();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') hideEdgeContextMenu();
+  if (e.key === 'Escape') { hideEdgeContextMenu(); if (splitMode) exitSplitMode(); }
 });
 
 document.getElementById('ctxSplitEdge').addEventListener('click', splitEdge);
+
+// ── Split Plot ────────────────────────────────────────────────
+let splitMode = false;
+let splitPoints = [];
+let splitSourceId = null;
+let splitClickTimer = null;
+
+function enterSplitMode() {
+  if (!selected) { showToast('⚠️ আগে একটা প্লট সিলেক্ট করুন'); return; }
+  splitMode = true;
+  splitSourceId = selected;
+  splitPoints = [];
+  canvasWrap.style.cursor = 'crosshair';
+  showToast('✂️ বাহুতে ক্লিক করে শুরু করুন, তারপর "Split End" চাপুন | ESC বাতিল');
+  renderAll();
+}
+
+function exitSplitMode() {
+  splitMode = false;
+  splitPoints = [];
+  splitSourceId = null;
+  splitClickTimer = null;
+  canvasWrap.style.cursor = '';
+  renderAll();
+}
+
+// Find the point on any edge of the polygon that is closest to click point (x,y)
+// Returns {pt, edgeIdx, t} or null if not close enough
+function findEdgeSnap(pts, x, y, threshFt = 6) {
+  const n = pts.length;
+  let best = null, bestDist = threshFt;
+  for (let i = 0; i < n; i++) {
+    const [ax,ay] = pts[i], [bx,by] = pts[(i+1)%n];
+    const dx=bx-ax, dy=by-ay, lenSq=dx*dx+dy*dy;
+    if (lenSq < 0.01) continue;
+    let t = ((x-ax)*dx+(y-ay)*dy)/lenSq;
+    t = Math.max(0.02, Math.min(0.98, t));
+    const px=ax+t*dx, py=ay+t*dy;
+    const dist=Math.sqrt((x-px)**2+(y-py)**2);
+    if (dist < bestDist) { bestDist=dist; best={pt:[px,py], edgeIdx:i, t}; }
+  }
+  return best;
+}
+
+// Split polygon by a polyline (splitPts array of [x,y]).
+// splitPts[0] is on edge startEdge at parameter t0,
+// splitPts[last] is on edge endEdge at parameter t1.
+// Returns two polygon arrays or null on failure.
+function splitPolygon(polyPts, splitPts) {
+  if (splitPts.length < 2) return null;
+  const n = polyPts.length;
+
+  // Find which edges the first and last split points lie on
+  function findEdge(pt) {
+    let best=null, bestDist=5;
+    for (let i=0;i<n;i++) {
+      const [ax,ay]=polyPts[i],[bx,by]=polyPts[(i+1)%n];
+      const dx=bx-ax,dy=by-ay,lenSq=dx*dx+dy*dy;
+      if(lenSq<0.01)continue;
+      let t=((pt[0]-ax)*dx+(pt[1]-ay)*dy)/lenSq;
+      t=Math.max(0,Math.min(1,t));
+      const px=ax+t*dx,py=ay+t*dy;
+      const d=Math.sqrt((pt[0]-px)**2+(pt[1]-py)**2);
+      if(d<bestDist){bestDist=d;best={i,t,snapped:[px,py]};}
+    }
+    return best;
+  }
+
+  const startInfo = findEdge(splitPts[0]);
+  const endInfo   = findEdge(splitPts[splitPts.length-1]);
+  if (!startInfo || !endInfo) return null;
+  if (startInfo.i === endInfo.i && Math.abs(startInfo.t - endInfo.t) < 0.05) return null;
+
+  const sp = startInfo.snapped, ep = endInfo.snapped;
+  const si = startInfo.i, ei = endInfo.i;
+
+  // Build poly A: sp → (edges from si+1 to ei) → ep → (intermediate points reversed) → sp
+  // Build poly B: ep → (edges from ei+1 to si) → sp → (intermediate points) → ep
+  const interPts = splitPts.slice(1, -1); // intermediate points
+
+  const polyA = [sp];
+  let idx = (si+1)%n;
+  while (idx !== (ei+1)%n) { polyA.push(polyPts[idx]); idx=(idx+1)%n; }
+  polyA.push(ep);
+  [...interPts].reverse().forEach(p => polyA.push(p));
+
+  const polyB = [ep];
+  idx = (ei+1)%n;
+  while (idx !== (si+1)%n) { polyB.push(polyPts[idx]); idx=(idx+1)%n; }
+  polyB.push(sp);
+  interPts.forEach(p => polyB.push(p));
+
+  // Remove duplicate consecutive points
+  function dedup(poly) {
+    return poly.filter((p,i) => {
+      if (i===0) return true;
+      const q=poly[i-1];
+      return Math.sqrt((p[0]-q[0])**2+(p[1]-q[1])**2)>0.1;
+    });
+  }
+  return [dedup(polyA), dedup(polyB)];
+}
+
+function completeSplit() {
+  if (splitPoints.length < 2) { showToast('⚠️ কম পক্ষে শুরু ও শেষ বিন্দু দরকার'); return; }
+  const p = plots.find(pl=>pl.id===splitSourceId);
+  if (!p) { exitSplitMode(); return; }
+
+  const pts = shapePoints(p.corners);
+  const result = splitPolygon(pts, splitPoints);
+  if (!result) { showToast('⚠️ Split করা সম্ভব হলো না — বাহুতে শুরু ও শেষ করুন'); return; }
+
+  pushHistory();
+  const [polyA, polyB] = result;
+  const idB = nextId++;
+
+  // Replace original plot with polyA, add new plot polyB
+  p.corners = polyA.length === 4 && isRectish(polyA)
+    ? ptsToQuad(polyA) : polyA;
+  p.labelPos = centerOf(p.corners);
+  p.lockedSides = {}; p.lockedAngles = {};
+
+  const [bg,bd] = COLORS[(idB-1)%COLORS.length];
+  const newPlot = {
+    id: idB, label: toBnLabel(idB),
+    color: bg, border: bd, locked: false,
+    corners: polyB.length === 4 && isRectish(polyB) ? ptsToQuad(polyB) : polyB,
+    labelPos: centerOf(polyB),
+    lockedSides: {}, lockedAngles: {},
+  };
+  const origIdx = plots.indexOf(p);
+  plots.splice(origIdx+1, 0, newPlot);
+
+  commitHistory();
+  exitSplitMode();
+  showToast(`✂️ প্লট ${p.label} → ${p.label} ও ${toBnLabel(idB)} দুটো ভাগ হয়েছে`);
+  selectPlot(splitSourceId);
+}
+
+function isRectish(pts) {
+  if (pts.length !== 4) return false;
+  // Check if all angles are ~90°
+  for (let i=0;i<4;i++) {
+    const a=pts[(i-1+4)%4],b=pts[i],c=pts[(i+1)%4];
+    const ax=a[0]-b[0],ay=a[1]-b[1],bx=c[0]-b[0],by=c[1]-b[1];
+    const la=Math.sqrt(ax*ax+ay*ay)||1,lb=Math.sqrt(bx*bx+by*by)||1;
+    const dot=(ax*bx+ay*by)/(la*lb);
+    if (Math.abs(dot)>0.1) return false;
+  }
+  return true;
+}
+
+function ptsToQuad(pts) {
+  // Convert 4-point array to {nw,ne,se,sw} by sorting by angle from centroid
+  const cx=pts.reduce((s,p)=>s+p[0],0)/4, cy=pts.reduce((s,p)=>s+p[1],0)/4;
+  const sorted=[...pts].sort((a,b)=>Math.atan2(a[1]-cy,a[0]-cx)-Math.atan2(b[1]-cy,b[0]-cx));
+  // Assign nw=top-left, ne=top-right, se=bottom-right, sw=bottom-left
+  const byY=[...sorted].sort((a,b)=>a[1]-b[1]);
+  const top=byY.slice(0,2).sort((a,b)=>a[0]-b[0]);
+  const bot=byY.slice(2).sort((a,b)=>a[0]-b[0]);
+  return {nw:top[0],ne:top[1],se:bot[1],sw:bot[0]};
+}
+
+// Render the split mode overlay (split line preview)
+function renderSplitOverlay() {
+  // Draw on gpsLayerG (above plots) if split mode active
+  if (!splitMode) return;
+  const p = plots.find(pl=>pl.id===splitSourceId);
+  if (!p) return;
+
+  const pts = shapePoints(p.corners);
+  // Draw split points and connecting line
+  splitPoints.forEach((sp,i) => {
+    const dot = svgEl('circle', {
+      cx:sp[0]*PX_PER_FT, cy:sp[1]*PX_PER_FT, r:5,
+      fill: i===0?'#f59e0b':'#ef4444',
+      stroke:'#fff','stroke-width':1.5,'pointer-events':'none'
+    });
+    gpsLayerG.appendChild(dot);
+  });
+
+  if (splitPoints.length >= 2) {
+    const d = splitPoints.map((p,i)=>`${i?'L':'M'}${(p[0]*PX_PER_FT).toFixed(1)},${(p[1]*PX_PER_FT).toFixed(1)}`).join(' ');
+    const line = svgEl('path',{d,fill:'none',stroke:'#ef4444','stroke-width':1.5,
+      'stroke-dasharray':'6,3','pointer-events':'none'});
+    gpsLayerG.appendChild(line);
+  }
+}
 
 function showConfirm(msg, onYes) {
   const dlg = document.getElementById('customConfirm');
@@ -3407,6 +3519,9 @@ function refreshPlotInfoPanel() {
   }
   if (!p.plotInfo) p.plotInfo = {};
   const pi = getPlotInfo(p);
+  const isLocked = !!p.locked;
+  const fillOp = Math.round(getOpacity(p)*100);
+  const strokeOp = Math.round((typeof p.strokeOpacity==='number'?p.strokeOpacity:1)*100);
 
   const items = [
     { key:'showName',   label:'নাম',          icon:'🏷️', sizeKey:'nameSize'   },
@@ -3416,54 +3531,180 @@ function refreshPlotInfoPanel() {
   ];
 
   plotInfoContent.innerHTML = `
-    <div style="font-size:11px;color:#94a3b8;margin-bottom:10px;">
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">
       প্লট: <b style="color:#f8fafc;">${p.label}</b>
     </div>
-    ${items.map(item => {
-      const on = pi[item.key];
-      const sz = p.plotInfo[item.sizeKey] || getDefaultFontSize(item.key);
-      return `
-      <div style="margin-bottom:6px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;
-          padding:8px 10px;border-radius:6px;
-          background:${on?'#1e3a5f':'#1e293b'};
-          border:1px solid ${on?'#3b82f6':'#334155'};">
-          <span style="font-size:12px;color:${on?'#f8fafc':'#64748b'};">
-            ${item.icon} ${item.label}
-          </span>
-          <button data-toggle="${item.key}" style="
-            background:${on?'#2563eb':'#334155'};color:#fff;border:none;
-            border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;
-          ">${on?'✅ চালু':'⬜ বন্ধ'}</button>
-        </div>
-        ${on ? `
-        <div style="display:flex;align-items:center;gap:6px;padding:4px 10px 0;">
-          <span style="font-size:10px;color:#64748b;min-width:40px;">ফন্ট সাইজ</span>
-          <button data-fz-dec="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:12px;">−</button>
-          <span data-fz-val="${item.key}" style="font-size:11px;color:#f8fafc;min-width:24px;text-align:center;">${sz}</span>
-          <button data-fz-inc="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:12px;">+</button>
-        </div>
-        ` : ''}
+
+    <!-- Color -->
+    <div class="field-label" style="font-size:10px;color:#94a3b8;margin-bottom:4px;">🎨 রঙ</div>
+    <div class="color-row" id="piColorRow" style="margin-bottom:10px;"></div>
+
+    <!-- Stroke width -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <span style="font-size:10px;color:#64748b;min-width:72px;">📐 বাহু মোটা</span>
+      <input type="range" id="piStrokeWidthSlider" min="0.5" max="8" step="0.5" value="${p.strokeWidth||1}" style="flex:1;" ${isLocked?'disabled':''}>
+      <span id="piStrokeWidthVal" style="font-size:10px;color:#94a3b8;min-width:30px;text-align:right;">${(p.strokeWidth||1)}px</span>
+    </div>
+
+    <!-- Fill opacity -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <span style="font-size:10px;color:#64748b;min-width:72px;">🌫️ রঙ স্বচ্ছতা</span>
+      <input type="range" id="piOpacitySlider" min="0" max="100" step="5" value="${fillOp}" style="flex:1;" ${isLocked?'disabled':''}>
+      <span id="piOpacityVal" style="font-size:10px;color:#94a3b8;min-width:30px;text-align:right;">${fillOp}%</span>
+    </div>
+
+    <!-- Stroke opacity -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+      <span style="font-size:10px;color:#64748b;min-width:72px;">📏 বাহু স্বচ্ছতা</span>
+      <input type="range" id="piStrokeSlider" min="0" max="100" step="5" value="${strokeOp}" style="flex:1;" ${isLocked?'disabled':''}>
+      <span id="piStrokeVal" style="font-size:10px;color:#94a3b8;min-width:30px;text-align:right;">${strokeOp}%</span>
+    </div>
+
+    <!-- Layer order -->
+    <div style="border-top:1px solid #334155;padding-top:8px;margin-bottom:8px;">
+      <div style="font-size:10px;color:#94a3b8;margin-bottom:5px;">🗂️ লেয়ার ক্রম</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+        <button class="btn" id="piBringFront" style="background:#0284c7;font-size:10px;padding:3px 7px;" ${isLocked?'disabled':''}>⬆️ সামনে</button>
+        <button class="btn" id="piSendBack"   style="background:#0284c7;font-size:10px;padding:3px 7px;" ${isLocked?'disabled':''}>⬇️ পিছনে</button>
+        <button class="btn" id="piFwdOne"     style="background:#475569;font-size:10px;padding:3px 7px;" ${isLocked?'disabled':''}>↗️ এক ধাপ</button>
+        <button class="btn" id="piBakOne"     style="background:#475569;font-size:10px;padding:3px 7px;" ${isLocked?'disabled':''}>↙️ এক ধাপ</button>
       </div>
-      `;
-    }).join('')}
-    <div style="margin-top:12px;border-top:1px solid #334155;padding-top:10px;display:flex;gap:6px;">
-      <button data-pi-all="show" class="btn" style="background:#16a34a;flex:1;font-size:11px;">✅ সব চালু</button>
-      <button data-pi-all="hide" class="btn" style="background:#475569;flex:1;font-size:11px;">⬜ সব বন্ধ</button>
+    </div>
+
+    <!-- Split -->
+    <div style="border-top:1px solid #334155;padding-top:8px;margin-bottom:8px;">
+      <div style="font-size:10px;color:#94a3b8;margin-bottom:5px;">✂️ প্লট ভাগ করুন</div>
+      <div style="display:flex;gap:4px;">
+        <button class="btn" id="piSplitStart" style="background:${splitMode&&splitSourceId===p.id?'#dc2626':'#334155'};flex:1;font-size:11px;">
+          ${splitMode&&splitSourceId===p.id?'✂️ চলছে… (বাতিল)':'✂️ Split Start'}
+        </button>
+        <button class="btn" id="piSplitEnd" style="background:#16a34a;flex:1;font-size:11px;"
+          ${(!splitMode||splitSourceId!==p.id||splitPoints.length<2)?'disabled':''}>
+          ✅ Split End
+        </button>
+      </div>
+      ${splitMode&&splitSourceId===p.id ? `<div style="font-size:9px;color:#94a3b8;margin-top:4px;">📍 ${toBnLabel(splitPoints.length)} বিন্দু — বাহুতে ক্লিক করুন</div>` : ''}
+    </div>
+
+    <!-- Info toggles -->
+    <div style="border-top:1px solid #334155;padding-top:8px;">
+      <div style="font-size:10px;color:#94a3b8;margin-bottom:6px;">📋 Canvas এ তথ্য দেখানো</div>
+      ${items.map(item => {
+        const on = pi[item.key];
+        const sz = p.plotInfo[item.sizeKey] || getDefaultFontSize(item.key);
+        return `
+        <div style="margin-bottom:5px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;
+            padding:6px 8px;border-radius:5px;
+            background:${on?'#1e3a5f':'#1e293b'};border:1px solid ${on?'#3b82f6':'#334155'};">
+            <span style="font-size:11px;color:${on?'#f8fafc':'#64748b'};">${item.icon} ${item.label}</span>
+            <button data-toggle="${item.key}" style="
+              background:${on?'#2563eb':'#334155'};color:#fff;border:none;
+              border-radius:4px;padding:2px 8px;cursor:pointer;font-size:10px;">
+              ${on?'✅':'⬜'}
+            </button>
+          </div>
+          ${on ? `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px 0;">
+            <span style="font-size:9px;color:#64748b;min-width:36px;">ফন্ট</span>
+            <button data-fz-dec="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:11px;">−</button>
+            <span data-fz-val="${item.key}" style="font-size:10px;color:#f8fafc;min-width:20px;text-align:center;">${sz}</span>
+            <button data-fz-inc="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:11px;">+</button>
+          </div>` : ''}
+        </div>`;
+      }).join('')}
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button data-pi-all="show" class="btn" style="background:#16a34a;flex:1;font-size:10px;">✅ সব চালু</button>
+        <button data-pi-all="hide" class="btn" style="background:#475569;flex:1;font-size:10px;">⬜ সব বন্ধ</button>
+      </div>
     </div>
   `;
 
-  // Toggle buttons
+  // Wire color swatches
+  const piColorRow = document.getElementById('piColorRow');
+  COLORS.forEach(([bg,bd]) => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (p.color===bg?' active':'');
+    sw.style.background = bg;
+    sw.style.borderColor = bd;
+    sw.addEventListener('click', () => {
+      const pp = plots.find(pl=>pl.id===selected); if(!pp) return;
+      pp.color=bg; pp.border=bd;
+      renderPlots(); refreshPlotInfoPanel();
+    });
+    piColorRow.appendChild(sw);
+  });
+
+  // Wire stroke width
+  const piSwSl = document.getElementById('piStrokeWidthSlider');
+  const piSwVal = document.getElementById('piStrokeWidthVal');
+  let swGesture=false;
+  piSwSl.addEventListener('input', (e) => {
+    if(!swGesture){pushHistory();swGesture=true;}
+    const v=parseFloat(e.target.value);
+    piSwVal.textContent=v+'px';
+    const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
+    pp.strokeWidth=v; renderPlots();
+  });
+  function endSwGesture(){if(swGesture){swGesture=false;commitHistory();}}
+  piSwSl.addEventListener('change',endSwGesture);
+  piSwSl.addEventListener('mouseup',endSwGesture);
+
+  // Wire fill opacity
+  const piOpSl = document.getElementById('piOpacitySlider');
+  const piOpVal = document.getElementById('piOpacityVal');
+  let opGesture=false;
+  piOpSl.addEventListener('input', (e) => {
+    if(!opGesture){pushHistory();opGesture=true;}
+    const pct=parseInt(e.target.value);
+    piOpVal.textContent=pct+'%';
+    const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
+    pp.opacity=pct/100; renderPlots();
+  });
+  function endOpGesture(){if(opGesture){opGesture=false;commitHistory();}}
+  piOpSl.addEventListener('change',endOpGesture);
+  piOpSl.addEventListener('mouseup',endOpGesture);
+
+  // Wire stroke opacity
+  const piStSl = document.getElementById('piStrokeSlider');
+  const piStVal = document.getElementById('piStrokeVal');
+  let stGesture=false;
+  piStSl.addEventListener('input', (e) => {
+    if(!stGesture){pushHistory();stGesture=true;}
+    const pct=parseInt(e.target.value);
+    piStVal.textContent=pct+'%';
+    const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
+    pp.strokeOpacity=pct/100; renderPlots();
+  });
+  function endStGesture(){if(stGesture){stGesture=false;commitHistory();}}
+  piStSl.addEventListener('change',endStGesture);
+  piStSl.addEventListener('mouseup',endStGesture);
+
+  // Layer order buttons
+  document.getElementById('piBringFront').addEventListener('click',()=>{bringToFront();refreshPlotInfoPanel();});
+  document.getElementById('piSendBack') .addEventListener('click',()=>{sendToBack();refreshPlotInfoPanel();});
+  document.getElementById('piFwdOne')   .addEventListener('click',()=>{bringForward();refreshPlotInfoPanel();});
+  document.getElementById('piBakOne')   .addEventListener('click',()=>{sendBackward();refreshPlotInfoPanel();});
+
+  // Split buttons
+  document.getElementById('piSplitStart').addEventListener('click', () => {
+    if (splitMode && splitSourceId === p.id) exitSplitMode();
+    else { if (splitMode) exitSplitMode(); enterSplitMode(); }
+    refreshPlotInfoPanel();
+  });
+  document.getElementById('piSplitEnd').addEventListener('click', () => {
+    if (!splitMode || splitPoints.length < 2) { showToast('⚠️ কম পক্ষে ২টি বিন্দু দরকার'); return; }
+    completeSplit();
+  });
+
+  // Info toggles
   plotInfoContent.querySelectorAll('[data-toggle]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const key = btn.dataset.toggle;
-      const pp = plots.find(pl=>pl.id===selected);
-      if (!pp) return;
-      if (!pp.plotInfo) pp.plotInfo = {};
-      pp.plotInfo[key] = !getPlotInfo(pp)[key];
-      renderPlots();
-      refreshPlotInfoPanel();
+      const key=btn.dataset.toggle;
+      const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
+      if(!pp.plotInfo)pp.plotInfo={};
+      pp.plotInfo[key]=!getPlotInfo(pp)[key];
+      renderPlots(); refreshPlotInfoPanel();
     });
   });
 
@@ -3471,29 +3712,25 @@ function refreshPlotInfoPanel() {
   plotInfoContent.querySelectorAll('[data-fz-dec],[data-fz-inc]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const key = btn.dataset.fzDec || btn.dataset.fzInc;
-      const inc = !!btn.dataset.fzInc;
-      const pp = plots.find(pl=>pl.id===selected);
-      if (!pp) return;
-      if (!pp.plotInfo) pp.plotInfo = {};
-      const sizeKey = items.find(i=>i.key===key)?.sizeKey;
-      if (!sizeKey) return;
-      const cur = pp.plotInfo[sizeKey] || getDefaultFontSize(key);
-      pp.plotInfo[sizeKey] = Math.max(6, Math.min(32, cur + (inc ? 1 : -1)));
-      renderPlots();
-      refreshPlotInfoPanel();
+      const key=btn.dataset.fzDec||btn.dataset.fzInc;
+      const inc=!!btn.dataset.fzInc;
+      const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
+      if(!pp.plotInfo)pp.plotInfo={};
+      const sizeKey=items.find(i=>i.key===key)?.sizeKey; if(!sizeKey)return;
+      const cur=pp.plotInfo[sizeKey]||getDefaultFontSize(key);
+      pp.plotInfo[sizeKey]=Math.max(6,Math.min(32,cur+(inc?1:-1)));
+      renderPlots(); refreshPlotInfoPanel();
     });
   });
 
-  // Show all / Hide all
+  // Show/hide all
   plotInfoContent.querySelectorAll('[data-pi-all]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click',(e)=>{
       e.stopPropagation();
-      const show = btn.dataset.piAll === 'show';
-      const pp = plots.find(pl=>pl.id===selected);
-      if (!pp) return;
-      if (!pp.plotInfo) pp.plotInfo = {};
-      ['showName','showShotok','showSqft','showLength'].forEach(k => pp.plotInfo[k] = show);
+      const show=btn.dataset.piAll==='show';
+      const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
+      if(!pp.plotInfo)pp.plotInfo={};
+      ['showName','showShotok','showSqft','showLength'].forEach(k=>pp.plotInfo[k]=show);
       renderPlots(); refreshPlotInfoPanel();
     });
   });
@@ -3508,6 +3745,8 @@ document.getElementById('plotInfoBtn').addEventListener('click', () => {
   else openPlotInfoPanel();
 });
 document.getElementById('closePlotInfoBtn').addEventListener('click', closePlotInfoPanel);
+
+// (Split buttons now wired inside refreshPlotInfoPanel)
 
 document.getElementById('mouzaBtn').addEventListener('click', () => {
   if (mouzaPanelOpen) closeMouzaPanel(); else openMouzaPanel();
@@ -3626,12 +3865,43 @@ document.getElementById('mouzaRemoveBtn').addEventListener('click', () => {
 
 // Intercept canvas clicks for calibration mode
 canvasWrap.addEventListener('contextmenu', (e) => {
-  // Suppress native context menu on canvas (edges show custom menu via their own handler)
   e.preventDefault();
   hideEdgeContextMenu();
+  if (splitMode) exitSplitMode(); // right-click cancels split
 });
 
+// Double-click on canvas = complete split
 canvasWrap.addEventListener('click', (e) => {
+  // Split mode: collect points on click
+  if (splitMode) {
+    e.stopPropagation();
+    const svgPt = svg.createSVGPoint();
+    svgPt.x = e.clientX; svgPt.y = e.clientY;
+    const coord = svgPt.matrixTransform(svg.getScreenCTM().inverse());
+    const fx = coord.x / PX_PER_FT, fy = coord.y / PX_PER_FT;
+
+    const p = plots.find(pl=>pl.id===splitSourceId);
+    if (!p || !splitMode) return;
+    const pts = shapePoints(p.corners);
+
+    const snap = findEdgeSnap(pts, fx, fy);
+    const pt = snap ? snap.pt : [fx, fy];
+
+    if (splitPoints.length === 0 && !snap) {
+      showToast('⚠️ প্রথম বিন্দুটা বাহুর উপরে ক্লিক করুন');
+      return;
+    }
+    splitPoints.push(pt);
+
+    if (splitPoints.length === 1) {
+      showToast('✅ শুরু বিন্দু সেট। ভেতরে ক্লিক করুন, তারপর অন্য বাহুতে ক্লিক করে "Split End" চাপুন');
+    } else {
+      showToast(`📍 ${toBnLabel(splitPoints.length)} বিন্দু যোগ হয়েছে — "Split End" চাপলে split হবে`);
+    }
+    renderAll();
+    return;
+  }
+
   // Calibration point picking
   if (mouzaCalibMode && mouzaImage) {
     const pt = svg.createSVGPoint();
@@ -3645,7 +3915,7 @@ canvasWrap.addEventListener('click', (e) => {
       mouzaCalibStatus.textContent = `✅ ২টি বিন্দু সিলেক্ট হয়েছে — এখন বাস্তব দূরত্ব (ফুট) লিখে "সেট" চাপুন`;
     }
     renderMouza();
-    return; // don't deselect plot
+    return;
   }
 
   // Normal deselect on canvas bg click
