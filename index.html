@@ -169,22 +169,34 @@
 
     <!-- GPS Anchor Panel -->
     <div id="gpsPanel" style="border-top:1px solid #334155;padding-top:10px;">
-      <div style="font-size:12px;font-weight:700;color:#34d399;margin-bottom:6px;">📍 GPS Coordinates</div>
-      <div style="font-size:10px;color:#94a3b8;margin-bottom:6px;line-height:1.5;">
-        যেকোনো প্লটের কোণা সিলেক্ট করে নিচে GPS দিন — বাকি সব কোণার GPS এ হিসাব হবে
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="font-size:12px;font-weight:700;color:#34d399;">📍 GPS Coordinates</div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8;cursor:pointer;">
+          <input type="checkbox" id="showGpsLabels" checked> Canvas এ দেখাও
+        </label>
       </div>
-      <div class="field-label">Anchor Point — Latitude</div>
-      <input type="text" id="gpsLat" placeholder="যেমন: 24.123456" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:5px;">
-      <div class="field-label">Anchor Point — Longitude</div>
-      <input type="text" id="gpsLng" placeholder="যেমন: 89.234567" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:5px;">
-      <div class="field-label">Anchor কোণা</div>
-      <select id="gpsCornerSelect" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:6px;">
+      <div style="font-size:10px;color:#94a3b8;margin-bottom:8px;line-height:1.5;">
+        ধাপ ১: নিচে Anchor কোণা বাছাই করুন<br>
+        ধাপ ২: সেই কোণার GPS (Lat/Lng) লিখুন<br>
+        ধাপ ৩: "Anchor সেট করুন" চাপুন
+      </div>
+
+      <div class="field-label">ধাপ ১ — Anchor কোণা বাছাই করুন</div>
+      <select id="gpsCornerSelect" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:8px;">
         <option value="">— প্লট ও কোণা বাছাই করুন —</option>
       </select>
-      <button class="btn btn-full" id="setGpsAnchorBtn" style="background:#34d399;color:#0f172a;font-weight:700;">✔ GPS Anchor সেট করুন</button>
+
+      <div class="field-label">ধাপ ২ — Latitude (উত্তর)</div>
+      <input type="text" id="gpsLat" placeholder="যেমন: 24.123456" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:5px;">
+
+      <div class="field-label">Longitude (পূর্ব)</div>
+      <input type="text" id="gpsLng" placeholder="যেমন: 89.234567" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:12px;box-sizing:border-box;margin-bottom:8px;">
+
+      <button class="btn btn-full" id="setGpsAnchorBtn" style="background:#34d399;color:#0f172a;font-weight:700;">✔ Anchor সেট করুন</button>
       <div id="gpsAnchorStatus" style="font-size:10px;color:#94a3b8;margin-top:5px;min-height:14px;"></div>
-      <div style="margin-top:5px;">
-        <button class="btn" id="clearGpsBtn" style="background:#475569;width:100%;font-size:10px;">✕ GPS মুছুন</button>
+      <div style="margin-top:5px;display:flex;gap:4px;">
+        <button class="btn" id="clearGpsBtn" style="background:#475569;flex:1;font-size:10px;">✕ GPS মুছুন</button>
+        <button class="btn" id="gpsExportBtn" style="background:#0d9488;flex:1;font-size:10px;" title="সব GPS কোঅর্ডিনেট copy করুন">📋 Export</button>
       </div>
     </div>
 
@@ -222,7 +234,6 @@
       <button class="btn" style="background:#16a34a" id="saveBtn">💾 সেভ</button>
       <button class="btn" style="background:#0284c7" id="loadBtn">📂 লোড</button>
       <button class="btn" style="background:#7c3aed" id="exportBtn">🖼️ ছবি</button>
-      <button class="btn" style="background:#0d9488" id="gpsExportBtn" title="সব GPS কোঅর্ডিনেট copy করুন">📋 GPS</button>
       <input type="file" id="fileInput" accept=".json">
 
       <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
@@ -481,6 +492,7 @@ function toLinkStr(ftDecimal) {
 
 // Returns display string based on current unit mode
 let showLinks = false;
+let showGpsLabels = true;
 function lenStr(ftDecimal) {
   return showLinks ? toLinkStr(ftDecimal) : toFeetInches(ftDecimal);
 }
@@ -515,6 +527,7 @@ function getPlotInfo(p) {
     showShotok: d.showShotok !== false,
     showSqft:   d.showSqft   !== false,
     showLength: d.showLength  !== false,
+    showGps:    d.showGps     !== false,
     nameSize:   d.nameSize   || 16,
     shotokSize: d.shotokSize || 10,
     sqftSize:   d.sqftSize   || 9,
@@ -2219,7 +2232,10 @@ function renderGPS(){
   gpsLayerG.appendChild(anchorG);
 
   // Draw GPS coordinates at each corner of every plot
+  if (!showGpsLabels) return;
   plots.forEach(p => {
+    const pi = getPlotInfo(p);
+    if (!pi.showGps) return; // per-plot GPS toggle
     const pts = shapePoints(p.corners);
     const quad = isQuad(p.corners);
     const cornerKeys = quad ? ['NW','NE','SE','SW'] : pts.map((_,i)=>`P${i+1}`);
@@ -3765,6 +3781,7 @@ function refreshPlotInfoPanel() {
     { key:'showShotok', label:'শতক',          icon:'📐', sizeKey:'shotokSize' },
     { key:'showSqft',   label:'বর্গফুট',      icon:'📏', sizeKey:'sqftSize'   },
     { key:'showLength', label:'বাহুর দৈর্ঘ্য', icon:'📌', sizeKey:'lengthSize' },
+    { key:'showGps',    label:'GPS স্থানাঙ্ক', icon:'📍', sizeKey:null         },
   ];
 
   plotInfoContent.innerHTML = `
@@ -3828,7 +3845,7 @@ function refreshPlotInfoPanel() {
       <div style="font-size:10px;color:#94a3b8;margin-bottom:6px;">📋 Canvas এ তথ্য দেখানো</div>
       ${items.map(item => {
         const on = pi[item.key];
-        const sz = p.plotInfo[item.sizeKey] || getDefaultFontSize(item.key);
+        const sz = item.sizeKey ? (p.plotInfo[item.sizeKey] || getDefaultFontSize(item.key)) : null;
         return `
         <div style="margin-bottom:5px;">
           <div style="display:flex;align-items:center;justify-content:space-between;
@@ -3841,7 +3858,7 @@ function refreshPlotInfoPanel() {
               ${on?'✅':'⬜'}
             </button>
           </div>
-          ${on ? `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px 0;">
+          ${on && sz !== null ? `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px 0;">
             <span style="font-size:9px;color:#64748b;min-width:36px;">ফন্ট</span>
             <button data-fz-dec="${item.key}" style="background:#334155;color:#cbd5e1;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:11px;">−</button>
             <span data-fz-val="${item.key}" style="font-size:10px;color:#f8fafc;min-width:20px;text-align:center;">${sz}</span>
@@ -3866,7 +3883,7 @@ function refreshPlotInfoPanel() {
     sw.addEventListener('click', () => {
       const pp = plots.find(pl=>pl.id===selected); if(!pp) return;
       pp.color=bg; pp.border=bd;
-      renderPlots(); refreshPlotInfoPanel();
+      renderAll(); refreshPlotInfoPanel();
     });
     piColorRow.appendChild(sw);
   });
@@ -3941,7 +3958,7 @@ function refreshPlotInfoPanel() {
       const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
       if(!pp.plotInfo)pp.plotInfo={};
       pp.plotInfo[key]=!getPlotInfo(pp)[key];
-      renderPlots(); refreshPlotInfoPanel();
+      renderAll(); refreshPlotInfoPanel();
     });
   });
 
@@ -3956,7 +3973,7 @@ function refreshPlotInfoPanel() {
       const sizeKey=items.find(i=>i.key===key)?.sizeKey; if(!sizeKey)return;
       const cur=pp.plotInfo[sizeKey]||getDefaultFontSize(key);
       pp.plotInfo[sizeKey]=Math.max(6,Math.min(32,cur+(inc?1:-1)));
-      renderPlots(); refreshPlotInfoPanel();
+      renderAll(); refreshPlotInfoPanel();
     });
   });
 
@@ -3967,8 +3984,8 @@ function refreshPlotInfoPanel() {
       const show=btn.dataset.piAll==='show';
       const pp=plots.find(pl=>pl.id===selected); if(!pp)return;
       if(!pp.plotInfo)pp.plotInfo={};
-      ['showName','showShotok','showSqft','showLength'].forEach(k=>pp.plotInfo[k]=show);
-      renderPlots(); refreshPlotInfoPanel();
+      ['showName','showShotok','showSqft','showLength','showGps'].forEach(k=>pp.plotInfo[k]=show);
+      renderAll(); refreshPlotInfoPanel();
     });
   });
 }
@@ -4354,6 +4371,11 @@ zoomSlider.addEventListener('input', (e) => {
 
 showSidesChk.addEventListener('change', (e) => {
   showSides = e.target.checked;
+  renderAll();
+});
+
+document.getElementById('showGpsLabels').addEventListener('change', (e) => {
+  showGpsLabels = e.target.checked;
   renderAll();
 });
 
