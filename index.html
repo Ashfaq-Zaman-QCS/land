@@ -101,7 +101,11 @@
     background:transparent; border:none; outline:none; font-size:12px;
     font-weight:700; color:#1e293b; width:80px; font-family:inherit;
   }
-  .sheet-tab .tab-close {
+  .sheet-tab.drag-over {
+    border-color: #60a5fa;
+    background: #1e3a5f;
+    box-shadow: -3px 0 0 #60a5fa;
+  }
     background:none; border:none; cursor:pointer; color:#94a3b8;
     font-size:13px; padding:0 0 0 2px; line-height:1;
   }
@@ -231,6 +235,7 @@
 
       <!-- Add Plot -->
       <button class="btn" style="background:#ea580c" id="addPlotBtn">➕ নতুন প্লট</button>
+      <button class="btn" style="background:#334155" id="addRulerBtn" title="দূরত্ব মাপার লাইন যোগ করুন">📏 লাইন</button>
 
       <div style="width:1px;height:24px;background:#334155;margin:0 2px;"></div>
 
@@ -396,6 +401,15 @@
 <!-- Edge right-click context menu -->
 <div id="edgeContextMenu">
   <div class="ctx-item" id="ctxSplitEdge">✂️ বাহু দুই ভাগ করুন</div>
+</div>
+
+<!-- Vertex (corner point) right-click context menu -->
+<div id="vertexContextMenu" style="
+  position:fixed; z-index:9999; display:none;
+  background:#1e293b; border:1px solid #475569; border-radius:6px;
+  padding:4px 0; box-shadow:0 4px 16px rgba(0,0,0,0.4); min-width:160px;
+">
+  <div class="ctx-item" id="ctxDeleteVertex" style="color:#f87171;">🗑️ এই বিন্দু মুছুন</div>
 </div>
 
 <!-- Sheet tab right-click context menu -->
@@ -1144,6 +1158,11 @@ let activeSheetIdx = 0;
 let plots    = sheets[0].plots;
 let nextId   = sheets[0].nextId;
 let selected = sheets[0].selected;
+let rulers   = []; // [{id, p1:[x,y], p2:[x,y]}] in feet — per-session, not saved to file
+let nextRulerId = 1;
+let rulerMode = false; // true = placing a new ruler (click two points)
+let rulerP1 = null;   // first point placed
+let selectedRulerId = null;
 let zoom     = sheets[0].zoom;
 let showSides   = sheets[0].showSides;
 let showAngles  = sheets[0].showAngles;
@@ -1725,6 +1744,10 @@ function renderPlots(){
           if (!cornerLocked) {
             handle.addEventListener('mousedown', (e) => { if (splitMode) return; startDragCorner(e, p.id, ck); });
           }
+          handle.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            showVertexContextMenu(e, p.id, ck, null);
+          });
           g.appendChild(handle);
         });
       } else {
@@ -1746,6 +1769,10 @@ function renderPlots(){
           if (!cornerLocked) {
             handle.addEventListener('mousedown', (e) => { if (splitMode) return; startDragCorner(e, p.id, idx); });
           }
+          handle.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            showVertexContextMenu(e, p.id, null, idx);
+          });
           g.appendChild(handle);
         });
       }
@@ -2175,7 +2202,8 @@ function renderSidebar(){
 
 function renderGPS(){
   gpsLayerG.innerHTML = "";
-  renderSplitOverlay(); // draw split mode overlay on top of GPS layer
+  renderRulers();       // draw measurement lines
+  renderSplitOverlay(); // draw split mode overlay
   if (!gpsAnchor) return;
 
   // Draw anchor marker (small green circle with crosshairs)
@@ -2244,9 +2272,10 @@ function renderSheetTabs() {
   sheets.forEach((s, idx) => {
     const tab = document.createElement('div');
     tab.className = 'sheet-tab' + (idx === activeSheetIdx ? ' active' : '');
+    tab.draggable = true;
+    tab.dataset.idx = idx;
 
     if (idx === activeSheetIdx) {
-      // Active tab: show editable name input
       const inp = document.createElement('input');
       inp.className = 'tab-rename-input';
       inp.value = s.name;
@@ -2258,29 +2287,27 @@ function renderSheetTabs() {
       inp.addEventListener('blur', (e) => renameSheet(idx, e.target.value));
       inp.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') inp.blur();
-        e.stopPropagation(); // don't trigger arrow-key plot movement
+        e.stopPropagation();
       });
       tab.appendChild(inp);
     } else {
-      // Inactive tab: just a click target
       const span = document.createElement('span');
       span.textContent = s.name;
       span.style.cssText = 'pointer-events:none;';
       tab.appendChild(span);
       tab.addEventListener('click', (e) => {
-        // Don't switch sheet if × was clicked
         if (e.target.classList.contains('tab-close')) return;
         switchToSheet(idx);
       });
     }
 
-    // Close button (×) — always show if more than 1 sheet
+    // Close button (×)
     if (sheets.length > 1) {
       const closeBtn = document.createElement('button');
       closeBtn.className = 'tab-close';
       closeBtn.textContent = '×';
       closeBtn.title = 'Sheet মুছুন';
-      const capturedIdx = idx; // capture idx explicitly
+      const capturedIdx = idx;
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -2288,6 +2315,49 @@ function renderSheetTabs() {
       });
       tab.appendChild(closeBtn);
     }
+
+    // ── Drag-to-reorder ──────────────────────────────────────
+    tab.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', idx);
+      tab.style.opacity = '0.5';
+    });
+    tab.addEventListener('dragend', () => {
+      tab.style.opacity = '';
+      tabsEl.querySelectorAll('.sheet-tab').forEach(t => t.classList.remove('drag-over'));
+    });
+    tab.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      tabsEl.querySelectorAll('.sheet-tab').forEach(t => t.classList.remove('drag-over'));
+      tab.classList.add('drag-over');
+    });
+    tab.addEventListener('dragleave', () => {
+      tab.classList.remove('drag-over');
+    });
+    tab.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tab.classList.remove('drag-over');
+      const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+      const toIdx   = parseInt(tab.dataset.idx);
+      if (fromIdx === toIdx || isNaN(fromIdx) || isNaN(toIdx)) return;
+      saveSheetState();
+      // Move sheet from fromIdx to toIdx
+      const [moved] = sheets.splice(fromIdx, 1);
+      sheets.splice(toIdx, 0, moved);
+      // Update activeSheetIdx to follow the moved sheet
+      if (activeSheetIdx === fromIdx) {
+        activeSheetIdx = toIdx;
+      } else if (fromIdx < activeSheetIdx && toIdx >= activeSheetIdx) {
+        activeSheetIdx--;
+      } else if (fromIdx > activeSheetIdx && toIdx <= activeSheetIdx) {
+        activeSheetIdx++;
+      }
+      loadSheetState(activeSheetIdx);
+      renderAll();
+      renderSheetTabs();
+    });
+    // ─────────────────────────────────────────────────────────
 
     tabsEl.appendChild(tab);
 
@@ -2301,7 +2371,6 @@ function renderSheetTabs() {
       if (left + 170 > window.innerWidth) left = e.clientX - 170;
       menu.style.left = left + 'px';
       menu.style.top  = top  + 'px';
-      // Hide delete option if only 1 sheet
       document.getElementById('ctxDeleteSheet').style.display =
         sheets.length > 1 ? 'flex' : 'none';
     });
@@ -2686,6 +2755,66 @@ window.addEventListener('keydown', handleArrowKeyMove);
 const edgeContextMenuEl = document.getElementById('edgeContextMenu');
 let edgeContextTarget = null; // { plotId, edgeIdx, svgX, svgY }
 
+// Vertex context menu
+let vertexContextTarget = null; // { plotId, cornerKey (quad) or vertexIdx (poly) }
+const vertexContextMenuEl = document.getElementById('vertexContextMenu');
+
+function showVertexContextMenu(e, plotId, cornerKey, vertexIdx) {
+  // Quad: cornerKey = 'nw'/'ne'/'se'/'sw', vertexIdx = null
+  // Poly: cornerKey = null, vertexIdx = integer
+  // Quad needs min 4 corners — can't delete below 3
+  const p = plots.find(pl=>pl.id===plotId);
+  if (!p) return;
+  const pts = shapePoints(p.corners);
+  if (pts.length <= 3) { showToast('⚠️ ৩টির কম বিন্দু রাখা যাবে না'); return; }
+
+  vertexContextTarget = { plotId, cornerKey, vertexIdx };
+  vertexContextMenuEl.style.display = 'block';
+  let left = e.clientX, top = e.clientY;
+  if (left + 180 > window.innerWidth) left = e.clientX - 180;
+  vertexContextMenuEl.style.left = left + 'px';
+  vertexContextMenuEl.style.top = top + 'px';
+}
+
+function hideVertexContextMenu() {
+  vertexContextMenuEl.style.display = 'none';
+  vertexContextTarget = null;
+}
+
+function deleteVertex() {
+  if (!vertexContextTarget) return;
+  const { plotId, cornerKey, vertexIdx } = vertexContextTarget;
+  const p = plots.find(pl=>pl.id===plotId);
+  if (!p) { hideVertexContextMenu(); return; }
+
+  const pts = shapePoints(p.corners);
+  if (pts.length <= 3) { showToast('⚠️ ৩টির কম বিন্দু রাখা যাবে না'); hideVertexContextMenu(); return; }
+
+  pushHistory();
+
+  if (cornerKey && isQuad(p.corners)) {
+    // Quad → remove one corner → becomes a triangle (polygon with 3 pts)
+    const keyOrder = ['nw','ne','se','sw'];
+    const newPts = keyOrder.filter(k => k !== cornerKey).map(k => [...p.corners[k]]);
+    p.corners = newPts; // now a 3-point polygon array
+    p.lockedSides = {};
+    p.lockedAngles = {};
+  } else {
+    // General polygon: remove vertex at vertexIdx
+    const newPts = pts.filter((_, i) => i !== vertexIdx);
+    p.corners = newPts;
+    // Reset locks (indices shift)
+    p.lockedSides = {};
+    p.lockedAngles = {};
+  }
+
+  p.labelPos = centerOf(p.corners);
+  refreshSideEditsFor(p);
+  commitHistory();
+  hideVertexContextMenu();
+  renderAll();
+}
+
 // ── Sheet tab context menu ──
 let sheetCtxTarget = null; // idx of right-clicked sheet tab
 
@@ -2788,10 +2917,22 @@ document.addEventListener('click', (e) => {
   if (!edgeContextMenuEl.contains(e.target)) hideEdgeContextMenu();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { hideEdgeContextMenu(); if (splitMode) exitSplitMode(); }
+  if (e.key === 'Escape') {
+    hideEdgeContextMenu();
+    hideVertexContextMenu();
+    if (splitMode) exitSplitMode();
+    if (rulerMode) { rulerMode=false; rulerP1=null; canvasWrap.style.cursor=''; document.getElementById('addRulerBtn').style.background='#334155'; renderAll(); }
+  }
 });
 
 document.getElementById('ctxSplitEdge').addEventListener('click', splitEdge);
+
+document.getElementById('ctxDeleteVertex').addEventListener('click', () => {
+  deleteVertex();
+});
+document.addEventListener('click', (e) => {
+  if (vertexContextMenuEl && !vertexContextMenuEl.contains(e.target)) hideVertexContextMenu();
+});
 
 // ── Split Plot ────────────────────────────────────────────────
 let splitMode = false;
@@ -2956,6 +3097,102 @@ function ptsToQuad(pts) {
 }
 
 // Render the split mode overlay (split line preview)
+function renderRulers() {
+  rulers.forEach(r => {
+    if (!r.p1 || !r.p2) return;
+    const x1=r.p1[0]*PX_PER_FT, y1=r.p1[1]*PX_PER_FT;
+    const x2=r.p2[0]*PX_PER_FT, y2=r.p2[1]*PX_PER_FT;
+    const dx=r.p2[0]-r.p1[0], dy=r.p2[1]-r.p1[1];
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    const isSelR = r.id === selectedRulerId;
+
+    // Line body (thick transparent hit area for selecting + dragging whole line)
+    const hitLine = svgEl('line',{x1,y1,x2,y2,stroke:'transparent','stroke-width':14,cursor:'move'});
+    hitLine.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation(); e.preventDefault();
+      selectedRulerId = r.id;
+      const startSVG = toSVGCoord(e);
+      const origP1 = [...r.p1], origP2 = [...r.p2];
+      function onMove(ev) {
+        const cur = toSVGCoord(ev);
+        const ddx=(cur.x-startSVG.x)/PX_PER_FT, ddy=(cur.y-startSVG.y)/PX_PER_FT;
+        r.p1=[origP1[0]+ddx, origP1[1]+ddy];
+        r.p2=[origP2[0]+ddx, origP2[1]+ddy];
+        renderAll();
+      }
+      function onUp() {
+        window.removeEventListener('mousemove',onMove);
+        window.removeEventListener('mouseup',onUp);
+      }
+      window.addEventListener('mousemove',onMove);
+      window.addEventListener('mouseup',onUp);
+    });
+    hitLine.addEventListener('click',(e)=>{e.stopPropagation();selectedRulerId=selectedRulerId===r.id?null:r.id;renderAll();});
+    gpsLayerG.appendChild(hitLine);
+
+    // Visible dashed line
+    const line = svgEl('line',{x1,y1,x2,y2,stroke:'#f59e0b','stroke-width':isSelR?2:1.5,'stroke-dasharray':'6,3','pointer-events':'none'});
+    gpsLayerG.appendChild(line);
+
+    // Distance label at midpoint
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    const angle=Math.atan2(y2-y1,x2-x1)*180/Math.PI;
+    const dispAngle=(angle>90||angle<-90)?angle+180:angle;
+    const distLabel = toFeetInches(dist)+(showLinks?' / '+toLinkStr(dist):'');
+    const labelW = Math.min(120, distLabel.length*6+16);
+
+    const bg=svgEl('rect',{x:mx-labelW/2,y:my-9,width:labelW,height:18,rx:4,
+      fill:'#1e293b','fill-opacity':0.92,stroke:isSelR?'#fbbf24':'#f59e0b','stroke-width':isSelR?1.5:0.8,
+      transform:`rotate(${dispAngle.toFixed(1)},${mx},${my})`,'pointer-events':'none'});
+    const txt=svgEl('text',{x:mx,y:my,'text-anchor':'middle','dominant-baseline':'middle',
+      'font-size':9,'font-weight':700,fill:'#fbbf24',
+      transform:`rotate(${dispAngle.toFixed(1)},${mx},${my})`,'pointer-events':'none'});
+    txt.textContent=distLabel;
+    gpsLayerG.appendChild(bg);
+    gpsLayerG.appendChild(txt);
+
+    // Draggable endpoint handles
+    [[r.p1,'p1',x1,y1],[r.p2,'p2',x2,y2]].forEach(([pt,key,cx,cy]) => {
+      const handle=svgEl('circle',{cx,cy,r:6,fill:isSelR?'#f59e0b':'rgba(245,158,11,0.5)',
+        stroke:'#fff','stroke-width':1.5,cursor:'crosshair'});
+      handle.addEventListener('mousedown',(e)=>{
+        if (e.button!==0) return;
+        e.stopPropagation(); e.preventDefault();
+        selectedRulerId=r.id;
+        function onMove(ev){
+          const cur=toSVGCoord(ev);
+          // Snap to plot corners/edge midpoints
+          let snapped=null;
+          const fx=cur.x/PX_PER_FT, fy=cur.y/PX_PER_FT;
+          plots.forEach(p=>{
+            shapePoints(p.corners).forEach(p2=>{
+              const d=Math.sqrt((p2[0]-fx)**2+(p2[1]-fy)**2);
+              if(d<6&&(!snapped||d<snapped.d))snapped={pt:p2,d};
+            });
+          });
+          r[key]=snapped?snapped.pt:[fx,fy];
+          renderAll();
+        }
+        function onUp(){window.removeEventListener('mousemove',onMove);window.removeEventListener('mouseup',onUp);}
+        window.addEventListener('mousemove',onMove);
+        window.addEventListener('mouseup',onUp);
+      });
+      gpsLayerG.appendChild(handle);
+    });
+
+    // Delete button when selected
+    if (isSelR) {
+      const delBtn=svgEl('circle',{cx:x2+12,cy:y2-12,r:8,fill:'#ef4444',stroke:'#fff','stroke-width':1.5,cursor:'pointer'});
+      const delTxt=svgEl('text',{x:x2+12,y:y2-12,'text-anchor':'middle','dominant-baseline':'middle','font-size':11,fill:'#fff','pointer-events':'none'});
+      delTxt.textContent='×';
+      delBtn.addEventListener('click',(e)=>{e.stopPropagation();rulers=rulers.filter(rr=>rr.id!==r.id);selectedRulerId=null;renderAll();});
+      gpsLayerG.appendChild(delBtn);
+      gpsLayerG.appendChild(delTxt);
+    }
+  });
+}
+
 function renderSplitOverlay() {
   // Draw on gpsLayerG (above plots) if split mode active
   if (!splitMode) return;
@@ -3583,7 +3820,7 @@ function refreshPlotInfoPanel() {
           ✅ Split End
         </button>
       </div>
-      ${splitMode&&splitSourceId===p.id ? `<div style="font-size:9px;color:#94a3b8;margin-top:4px;">📍 ${toBnLabel(splitPoints.length)} বিন্দু — বাহুতে ক্লিক করুন</div>` : ''}
+      ${splitMode&&splitSourceId===p.id ? '<div style="font-size:9px;color:#94a3b8;margin-top:4px;">📍 ' + toBnLabel(splitPoints.length) + ' বিন্দু — বাহুতে ক্লিক করুন</div>' : ''}
     </div>
 
     <!-- Info toggles -->
@@ -3872,6 +4109,47 @@ canvasWrap.addEventListener('contextmenu', (e) => {
 
 // Double-click on canvas = complete split
 canvasWrap.addEventListener('click', (e) => {
+  // Ruler mode: place measurement line points
+  if (rulerMode) {
+    e.stopPropagation();
+    const svgPt2 = svg.createSVGPoint();
+    svgPt2.x = e.clientX; svgPt2.y = e.clientY;
+    const coord2 = svgPt2.matrixTransform(svg.getScreenCTM().inverse());
+    const fx2 = coord2.x/PX_PER_FT, fy2 = coord2.y/PX_PER_FT;
+
+    // Snap to any plot corner or edge midpoint
+    let snapped = null;
+    plots.forEach(p => {
+      const pts2 = shapePoints(p.corners);
+      const n2 = pts2.length;
+      pts2.forEach(pt => {
+        const d = Math.sqrt((pt[0]-fx2)**2+(pt[1]-fy2)**2);
+        if (d<6 && (!snapped||d<snapped.d)) snapped={pt,d};
+      });
+      for (let i=0;i<n2;i++) {
+        const a=pts2[i], b=pts2[(i+1)%n2];
+        const m = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+        const d = Math.sqrt((m[0]-fx2)**2+(m[1]-fy2)**2);
+        if (d<6 && (!snapped||d<snapped.d)) snapped={pt:m,d};
+      }
+    });
+    const pt = snapped ? snapped.pt : [fx2, fy2];
+
+    if (!rulerP1) {
+      rulerP1 = pt;
+      showToast('📏 দ্বিতীয় বিন্দু ক্লিক করুন');
+    } else {
+      rulers.push({id: nextRulerId++, p1: rulerP1, p2: pt});
+      rulerP1 = null;
+      rulerMode = false;
+      canvasWrap.style.cursor = '';
+      document.getElementById('addRulerBtn').style.background = '#334155';
+      showToast('📏 লাইন যোগ হয়েছে — ক্লিক করে সিলেক্ট করুন, × দিয়ে মুছুন');
+      renderAll();
+    }
+    return;
+  }
+
   // Split mode: collect points on click
   if (splitMode) {
     e.stopPropagation();
@@ -3896,7 +4174,7 @@ canvasWrap.addEventListener('click', (e) => {
     if (splitPoints.length === 1) {
       showToast('✅ শুরু বিন্দু সেট। ভেতরে ক্লিক করুন, তারপর অন্য বাহুতে ক্লিক করে "Split End" চাপুন');
     } else {
-      showToast(`📍 ${toBnLabel(splitPoints.length)} বিন্দু যোগ হয়েছে — "Split End" চাপলে split হবে`);
+      showToast('📍 ' + toBnLabel(splitPoints.length) + ' বিন্দু যোগ হয়েছে — Split End চাপলে split হবে');
     }
     renderAll();
     return;
@@ -3955,6 +4233,44 @@ document.getElementById('loadBtn').addEventListener('click', () => document.getE
 document.getElementById('fileInput').addEventListener('change', loadFromFile);
 document.getElementById('exportBtn').addEventListener('click', exportAsPNG);
 document.getElementById('addPlotBtn').addEventListener('click', addNewPlot);
+
+document.getElementById('addRulerBtn').addEventListener('click', () => {
+  if (rulerMode) {
+    rulerMode = false; rulerP1 = null;
+    canvasWrap.style.cursor = '';
+    document.getElementById('addRulerBtn').style.background = '#334155';
+    renderAll();
+  } else {
+    rulerMode = true;
+    document.getElementById('addRulerBtn').style.background = '#f59e0b';
+    canvasWrap.style.cursor = 'crosshair';
+    showToast('📏 প্রথম বিন্দু ক্লিক করুন');
+  }
+});
+
+// Live preview line while placing ruler second point
+canvasWrap.addEventListener('mousemove', (e) => {
+  if (!rulerMode || !rulerP1) return;
+  const svgPt = svg.createSVGPoint();
+  svgPt.x = e.clientX; svgPt.y = e.clientY;
+  const coord = svgPt.matrixTransform(svg.getScreenCTM().inverse());
+  const fx = coord.x/PX_PER_FT, fy = coord.y/PX_PER_FT;
+  // Remove old preview
+  const old = document.getElementById('rulerPreview');
+  if (old) old.remove();
+  // Draw preview
+  const g = svgEl('g', {id:'rulerPreview','pointer-events':'none'});
+  const line = svgEl('line',{x1:rulerP1[0]*PX_PER_FT,y1:rulerP1[1]*PX_PER_FT,
+    x2:fx*PX_PER_FT,y2:fy*PX_PER_FT,
+    stroke:'#f59e0b','stroke-width':1.5,'stroke-dasharray':'4,3'});
+  g.appendChild(line);
+  const dist=Math.sqrt((fx-rulerP1[0])**2+(fy-rulerP1[1])**2);
+  const mx=(rulerP1[0]+fx)/2*PX_PER_FT, my=(rulerP1[1]+fy)/2*PX_PER_FT;
+  const lbl = svgEl('text',{x:mx,y:my-6,'text-anchor':'middle','font-size':9,'font-weight':700,fill:'#fbbf24'});
+  lbl.textContent = toFeetInches(dist);
+  g.appendChild(lbl);
+  gpsLayerG.appendChild(g);
+});
 document.getElementById('undoBtn').addEventListener('click', undo);
 document.getElementById('redoBtn').addEventListener('click', redo);
 document.getElementById('addSheetBtn').addEventListener('click', addSheet);
